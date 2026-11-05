@@ -1,0 +1,73 @@
+/* FloatingPhone design tokens. Palette values are final: do not change. */
+:root {
+  /* Palette */
+  --ink-950: #06141B;
+  --ink-900: #11212D;
+  --ink-800: #253745;
+  --ink-600: #4A5C6A;
+  --mist-400: #9BA8AB;
+  --mist-200: #CCD0CF;
+
+  /* Semantic tokens */
+  --bg: var(--ink-950);
+  --surface: var(--ink-900);
+  --surface-hover: var(--ink-800);
+  --surface-active: #1c2b36;
+  --border: var(--ink-800);
+  --border-subtle: #1a2935;
+  --text: var(--mist-200);
+  --text-muted: var(--mist-400);
+  --text-disabled: var(--ink-600);
+  --primary: var(--mist-200);
+  --on-primary: var(--ink-950);
+  --focus-ring: var(--mist-400);
+
+  /* Status colors */
+  --success: #5FBF9A;
+  --warning: #E0B04A;
+  --danger: #E07A7A;
+
+  /* Frame colors (used by the frame engine) */
+  --frame-midnight: #06141B;
+  --frame-navy: #11212D;
+  --frame-slate: #253745;
+  --frame-steel: #4A5C6A;
+  --frame-mist: #9BA8AB;
+  --frame-silver: #CCD0CF;
+
+  /* Typography Stacks (typography-master: Technical Swiss & Industrial Mono) */
+  --font: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+
+  /* Fluid Typographic Scale (Major Third 1.250 scale with clamp formula) */
+  --text-xs: clamp(0.75rem, 0.72rem + 0.15vw, 0.8125rem);
+  --text-sm: clamp(0.875rem, 0.84rem + 0.18vw, 0.9375rem);
+  --text-base: clamp(1rem, 0.96rem + 0.2vw, 1.0625rem);
+  --text-lg: clamp(1.25rem, 1.18rem + 0.35vw, 1.375rem);
+  --text-xl: clamp(1.5rem, 1.4rem + 0.5vw, 1.75rem);
+  --text-2xl: clamp(1.875rem, 1.72rem + 0.75vw, 2.25rem);
+
+  /* Tracking & Leading Laws */
+  --tracking-tight: -0.025em;
+  --tracking-normal: 0em;
+  --tracking-wide: 0.025em;
+  --leading-tight: 1.15;
+  --leading-normal: 1.5;
+
+  /* Radius and spacing */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-full: 9999px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+
+  /* Transitions & Shadows (Anti-slop: crisp borders, subtle directional light) */
+  --shadow-bezel: 0 12px 32px -8px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(255, 255, 255, 0.06);
+  --shadow-hud: 0 8px 24px -4px rgba(0, 0, 0, 0.75), 0 0 0 1px var(--border);
+  --transition-fast: 140ms cubic-bezier(0.16, 1, 0.3, 1);
+}
