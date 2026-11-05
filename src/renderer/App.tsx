@@ -146,31 +146,13 @@ export const App: React.FC = () => {
   const screenWidth = Math.round(isPortrait ? scaledOptions.baseScreenWidth : scaledOptions.baseScreenWidth * ratioMultiplier);
   const screenHeight = Math.round(isPortrait ? scaledOptions.baseScreenWidth * ratioMultiplier : scaledOptions.baseScreenWidth);
 
-  const totalPhoneWidth = screenWidth + scaledOptions.bezelWidth * 2;
-  const totalPhoneHeight = screenHeight + scaledOptions.bezelWidth * 2;
-
-  // Window size adaptation via Electron IPC
-  // The panel mounts only after the fullscreen resize completes so the phone
-  // never reflows mid-transition; on close it unmounts before the window shrinks.
-  const [inspectorDocked, setInspectorDocked] = useState(false);
+  // The window is a permanent fullscreen transparent overlay; the phone is
+  // centered in it and the inspector overlays the right edge. Sizing once at
+  // startup (and on phone scale changes would be needless) means toggling the
+  // panel never moves the frame.
   useEffect(() => {
-    const api = window.electronAPI;
-    if (!api?.setWindowSize) return;
-
-    if (!showInspector) setInspectorDocked(false);
-
-    const PADDING = 48; // padding for HUD and breathing room
-    const targetWidth = showInspector ? window.screen.availWidth : totalPhoneWidth + PADDING;
-    const targetHeight = showInspector ? window.screen.availHeight : totalPhoneHeight + PADDING;
-
-    let cancelled = false;
-    api.setWindowSize(targetWidth, targetHeight).then(() => {
-      if (!cancelled && showInspector) setInspectorDocked(true);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [totalPhoneWidth, totalPhoneHeight, showInspector]);
+    window.electronAPI?.setWindowSize(window.screen.availWidth, window.screen.availHeight);
+  }, []);
 
   // Click-through when the pointer is off the window (transparent overlay must not block the desktop)
   useEffect(() => {
@@ -459,7 +441,7 @@ export const App: React.FC = () => {
       </div>
 
       {/* Collapsible Frame Inspector Drawer (Docked to the right of the floating phone) */}
-      {inspectorDocked && (
+      {showInspector && (
         <aside
           className="app-no-drag"
           style={{
