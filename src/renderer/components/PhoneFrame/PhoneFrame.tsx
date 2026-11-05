@@ -53,7 +53,6 @@ export const PhoneFrame: React.FC<PhoneFrameProps> = ({ options, children }) => 
         position: "relative",
         width: `${totalWidth}px`,
         height: `${totalHeight}px`,
-        filter: "drop-shadow(0 16px 36px rgba(0, 0, 0, 0.75)) drop-shadow(0 0 1px rgba(255, 255, 255, 0.1))",
         userSelect: "none",
         transition: "width 240ms cubic-bezier(0.16, 1, 0.3, 1), height 240ms cubic-bezier(0.16, 1, 0.3, 1)",
       }}
@@ -191,7 +190,6 @@ export const PhoneFrame: React.FC<PhoneFrameProps> = ({ options, children }) => 
           borderRadius: `${screenRadius}px`,
           overflow: "hidden",
           backgroundColor: "#000000",
-          boxShadow: "inset 0 0 12px rgba(0, 0, 0, 0.85)",
           display: "flex",
           flexDirection: "column",
         }}
@@ -221,7 +219,6 @@ export const PhoneFrame: React.FC<PhoneFrameProps> = ({ options, children }) => 
                   borderRadius: "50%",
                   backgroundColor: "#030608",
                   border: "1px solid rgba(255, 255, 255, 0.16)",
-                  boxShadow: "inset 0 0 3px #000, 0 1px 2px rgba(0,0,0,0.5)",
                 }}
               />
             )}
@@ -234,7 +231,6 @@ export const PhoneFrame: React.FC<PhoneFrameProps> = ({ options, children }) => 
                   borderRadius: "50%",
                   backgroundColor: "#030608",
                   border: "1px solid rgba(255, 255, 255, 0.16)",
-                  boxShadow: "inset 0 0 3px #000, 0 1px 2px rgba(0,0,0,0.5)",
                 }}
               />
             )}
@@ -247,7 +243,6 @@ export const PhoneFrame: React.FC<PhoneFrameProps> = ({ options, children }) => 
                   borderRadius: "9px",
                   backgroundColor: "#030608",
                   border: "1px solid rgba(255, 255, 255, 0.12)",
-                  boxShadow: "inset 0 0 4px #000, 0 1px 3px rgba(0,0,0,0.6)",
                 }}
               />
             )}
