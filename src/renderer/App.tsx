@@ -35,11 +35,31 @@ export const App: React.FC = () => {
   const [mirrorError, setMirrorError] = useState<string | null>(null);
 
   const [isPinned, setIsPinned] = useState(false);
-  const [scale, setScale] = useState(100);
+  const [scale, setScale] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem("phoneframe_scale_v2") ?? localStorage.getItem("phoneframe_scale");
+      const parsed = saved ? Number(saved) : NaN;
+      if (isNaN(parsed) || parsed === 70 || parsed < 60 || parsed > 140) {
+        return 75;
+      }
+      return parsed;
+    } catch {
+      return 75;
+    }
+  });
   const [showInspector, setShowInspector] = useState(false);
   const [isWizardActive, setIsWizardActive] = useState(true);
   const [isHovered, setIsHovered] = useState(false);
   const hideTimerRef = useRef<number | null>(null);
+
+  // Persist scale preference across sessions
+  useEffect(() => {
+    try {
+      localStorage.setItem("phoneframe_scale_v2", String(scale));
+    } catch {
+      // Ignore storage restrictions
+    }
+  }, [scale]);
 
   // Subscribe to real-time ADB status events & mirror state
   useEffect(() => {
@@ -131,10 +151,14 @@ export const App: React.FC = () => {
 
   // Window size adaptation via Electron IPC
   useEffect(() => {
-    const PADDING = 48; // padding for drop shadow & hover HUD
-    const INSPECTOR_WIDTH = showInspector ? 320 : 0;
-    const targetWidth = totalPhoneWidth + PADDING + INSPECTOR_WIDTH;
-    const targetHeight = totalPhoneHeight + PADDING;
+    const PADDING = 48; // padding for HUD and breathing room
+    const INSPECTOR_WIDTH = 320;
+    const INSPECTOR_MIN_HEIGHT = 520;
+    const INSPECTOR_EXTRA_WIDTH = showInspector ? INSPECTOR_WIDTH : 0;
+    const targetWidth = totalPhoneWidth + PADDING + INSPECTOR_EXTRA_WIDTH;
+    const targetHeight = showInspector
+      ? Math.max(totalPhoneHeight + PADDING, INSPECTOR_MIN_HEIGHT)
+      : totalPhoneHeight + PADDING;
 
     if (window.electronAPI?.setWindowSize) {
       window.electronAPI.setWindowSize(targetWidth, targetHeight);
@@ -201,6 +225,7 @@ export const App: React.FC = () => {
       onMouseLeave={handleMouseLeave}
       style={{
         display: "flex",
+        alignItems: "center",
         width: "100vw",
         height: "100vh",
         backgroundColor: "transparent",
@@ -427,16 +452,24 @@ export const App: React.FC = () => {
           className="app-no-drag"
           style={{
             width: "320px",
+            minWidth: "320px",
+            maxWidth: "320px",
             height: "100%",
+            alignSelf: "stretch",
             backgroundColor: "var(--surface)",
-            borderLeft: "1px solid var(--border)",
+            border: "1px solid var(--border)",
+            borderTop: "none",
+            borderBottom: "none",
+            borderRight: "none",
+            borderRadius: "0",
             display: "flex",
             flexDirection: "column",
             gap: "var(--space-4)",
             padding: "var(--space-4)",
             overflowY: "auto",
             zIndex: 90,
-            boxShadow: "-8px 0 24px rgba(0, 0, 0, 0.5)",
+            boxShadow: "0 8px 32px rgba(0, 0, 0, 0.6)",
+            flexShrink: 0,
           }}
         >
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
