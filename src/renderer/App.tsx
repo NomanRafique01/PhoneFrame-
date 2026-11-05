@@ -150,15 +150,26 @@ export const App: React.FC = () => {
   const totalPhoneHeight = screenHeight + scaledOptions.bezelWidth * 2;
 
   // Window size adaptation via Electron IPC
+  // The panel mounts only after the fullscreen resize completes so the phone
+  // never reflows mid-transition; on close it unmounts before the window shrinks.
+  const [inspectorDocked, setInspectorDocked] = useState(false);
   useEffect(() => {
+    const api = window.electronAPI;
+    if (!api?.setWindowSize) return;
+
+    if (!showInspector) setInspectorDocked(false);
+
     const PADDING = 48; // padding for HUD and breathing room
-    // Inspector mode fills the work area so the panel pins to the screen's right edge
     const targetWidth = showInspector ? window.screen.availWidth : totalPhoneWidth + PADDING;
     const targetHeight = showInspector ? window.screen.availHeight : totalPhoneHeight + PADDING;
 
-    if (window.electronAPI?.setWindowSize) {
-      window.electronAPI.setWindowSize(targetWidth, targetHeight);
-    }
+    let cancelled = false;
+    api.setWindowSize(targetWidth, targetHeight).then(() => {
+      if (!cancelled && showInspector) setInspectorDocked(true);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [totalPhoneWidth, totalPhoneHeight, showInspector]);
 
   // Click-through when the pointer is off the window (transparent overlay must not block the desktop)
@@ -448,7 +459,7 @@ export const App: React.FC = () => {
       </div>
 
       {/* Collapsible Frame Inspector Drawer (Docked to the right of the floating phone) */}
-      {showInspector && (
+      {inspectorDocked && (
         <aside
           className="app-no-drag"
           style={{
