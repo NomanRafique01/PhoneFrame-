@@ -1,0 +1,27 @@
+{
+  "name": "floatingphone",
+  "version": "0.1.0",
+  "description": "Floating phone-frame screen mirroring for Android app developers.",
+  "main": "dist/main/index.js",
+  "scripts": {
+    "dev": "vite",
+    "build:main": "tsc -p tsconfig.node.json",
+    "build:renderer": "vite build",
+    "build": "npm run build:main && npm run build:renderer",
+    "start": "electron ."
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "electron": "^33.2.1",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.11"
+  }
+}
+

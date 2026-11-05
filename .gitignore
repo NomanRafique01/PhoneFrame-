@@ -1,0 +1,17 @@
+node_modules/
+dist/
+*.zip
+.gradle/
+build/
+.DS_Store
+Thumbs.db
+
+# Scratch testing scripts
+test_*.bat
+test_*.ps1
+
+# External reference archives
+reference/
+scrcpy-master/
+FrameCast/
+
