@@ -240,31 +240,34 @@ export const App: React.FC = () => {
           padding: "24px",
         }}
       >
-        {/* Floating Contextual HUD (Hover revealed or always visible when inspector open) */}
-        <div
-          style={{
-            position: "absolute",
-            top: "8px",
-            zIndex: 100,
-            opacity: isHovered || showInspector ? 1 : 0,
-            pointerEvents: isHovered || showInspector ? "auto" : "none",
-            transform: isHovered || showInspector ? "translateY(0)" : "translateY(-6px)",
-            transition: "opacity 160ms cubic-bezier(0.16, 1, 0.3, 1), transform 160ms cubic-bezier(0.16, 1, 0.3, 1)",
-          }}
-        >
-          <FloatingHUD
-            isPinned={isPinned}
-            onTogglePin={handleTogglePin}
-            onRotate={handleRotate}
-            showInspector={showInspector}
-            onToggleInspector={() => setShowInspector(!showInspector)}
-            onMinimize={handleMinimize}
-            onClose={handleClose}
-          />
-        </div>
+        {/* Phone + HUD wrapper (shrink-fits the frame so the HUD can anchor to it) */}
+        <div style={{ position: "relative", display: "flex" }}>
+          {/* Floating Contextual HUD (Hover revealed or always visible when inspector open) */}
+          <div
+            style={{
+              position: "absolute",
+              top: "-52px",
+              left: 0,
+              zIndex: 100,
+              opacity: isHovered || showInspector ? 1 : 0,
+              pointerEvents: isHovered || showInspector ? "auto" : "none",
+              transform: isHovered || showInspector ? "translateY(0)" : "translateY(-6px)",
+              transition: "opacity 160ms cubic-bezier(0.16, 1, 0.3, 1), transform 160ms cubic-bezier(0.16, 1, 0.3, 1)",
+            }}
+          >
+            <FloatingHUD
+              isPinned={isPinned}
+              onTogglePin={handleTogglePin}
+              onRotate={handleRotate}
+              showInspector={showInspector}
+              onToggleInspector={() => setShowInspector(!showInspector)}
+              onMinimize={handleMinimize}
+              onClose={handleClose}
+            />
+          </div>
 
-        {/* Procedural SVG Phone Frame Engine */}
-        <PhoneFrame options={scaledOptions}>
+          {/* Procedural SVG Phone Frame Engine */}
+          <PhoneFrame options={scaledOptions}>
           {/* Inner Phone Screen Content */}
           <div
             style={{
@@ -437,7 +440,8 @@ export const App: React.FC = () => {
               )}
             </div>
           </div>
-        </PhoneFrame>
+          </PhoneFrame>
+        </div>
       </div>
 
       {/* Collapsible Frame Inspector Drawer (Docked to the right of the floating phone) */}
