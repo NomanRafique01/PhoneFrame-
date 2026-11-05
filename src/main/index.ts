@@ -36,22 +36,6 @@ function createWindow(): void {
   mainWindow.on("closed", () => {
     mainWindow = null;
   });
-
-  // Forward ADB status changes to renderer
-  adbTracker.on("status-changed", (status) => {
-    mainWindow?.webContents.send("adb:status-changed", status);
-  });
-
-  // Forward Mirror stream chunks and state changes
-  if (mirrorManager) {
-    mirrorManager.on("video-chunk", (chunk: Buffer) => {
-      mainWindow?.webContents.send("video:chunk", chunk);
-    });
-
-    mirrorManager.on("state-changed", (state: string, err?: string) => {
-      mainWindow?.webContents.send("mirror:state-changed", { state, error: err });
-    });
-  }
 }
 
 app.whenReady().then(async () => {
@@ -60,6 +44,36 @@ app.whenReady().then(async () => {
 
   createWindow();
   await adbTracker.start();
+
+  // Wire up ADB status → renderer (bound once after window exists)
+  adbTracker.on("status-changed", (status) => {
+    mainWindow?.webContents.send("adb:status-changed", status);
+  });
+
+  // Wire up mirror events → renderer (bound once after mirrorManager + window exist)
+  mirrorManager.on("video-init", (meta) => {
+    if (mainWindow?.webContents && !mainWindow.webContents.isDestroyed()) {
+      mainWindow.webContents.send("video:init", meta);
+    }
+  });
+
+  mirrorManager.on("video-codec", (codec: string) => {
+    if (mainWindow?.webContents && !mainWindow.webContents.isDestroyed()) {
+      mainWindow.webContents.send("video:codec", codec);
+    }
+  });
+
+  mirrorManager.on("video-chunk", (chunk: Buffer) => {
+    if (mainWindow?.webContents && !mainWindow.webContents.isDestroyed()) {
+      mainWindow.webContents.send("video:chunk", chunk);
+    }
+  });
+
+  mirrorManager.on("state-changed", (state: string, err?: string) => {
+    if (mainWindow?.webContents && !mainWindow.webContents.isDestroyed()) {
+      mainWindow.webContents.send("mirror:state-changed", { state, error: err });
+    }
+  });
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {
