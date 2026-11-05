@@ -42,6 +42,8 @@ export interface FloatingPhoneAPI {
   getMirrorState: () => Promise<MirrorState>;
   onMirrorStateChange: (callback: (payload: MirrorStatePayload) => void) => () => void;
   onVideoChunk: (callback: (chunk: Uint8Array) => void) => () => void;
+  onVideoInit?: (callback: (meta: { codec: string; width: number; height: number }) => void) => () => void;
+  onVideoCodec?: (callback: (codec: string) => void) => () => void;
 }
 
 declare global {

@@ -84,9 +84,30 @@ export const App: React.FC = () => {
         }
       });
 
+      // Stream resolution / init listener
+      const unsubscribeVideoInit = window.electronAPI?.onVideoInit?.((meta) => {
+        if (meta.width && meta.height) {
+          const w = meta.width;
+          const h = meta.height;
+          const gcd = (a: number, b: number): number => (b === 0 ? a : gcd(b, a % b));
+          const divisor = gcd(w, h);
+          const ratioW = Math.round((w / divisor) * 10) / 10;
+          const ratioH = Math.round((h / divisor) * 10) / 10;
+
+          setFrameOptions((prev) => ({
+            ...prev,
+            aspectRatio: {
+              width: Math.min(ratioW, ratioH),
+              height: Math.max(ratioW, ratioH),
+            },
+          }));
+        }
+      });
+
       return () => {
         unsubscribeAdb();
         unsubscribeMirror?.();
+        unsubscribeVideoInit?.();
       };
     }
   }, []);
@@ -236,27 +257,29 @@ export const App: React.FC = () => {
               backgroundColor: "#000000",
             }}
           >
-            {/* Status bar */}
-            <div
-              style={{
-                height: "26px",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                padding: "0 18px",
-                fontSize: "11px",
-                fontWeight: 500,
-                color: "var(--mist-400)",
-                zIndex: 20,
-                backgroundColor: "rgba(0, 0, 0, 0.4)",
-              }}
-            >
-              <span className="mono-data">09:41</span>
-              <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                <span className="mono-data" style={{ fontSize: "10px" }}>5G</span>
-                <span className="mono-data" style={{ fontSize: "10px" }}>98%</span>
+            {/* Status bar (only show in standby/setup mode; during streaming, real phone status bar is visible) */}
+            {!isStreaming && (
+              <div
+                style={{
+                  height: "26px",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  padding: "0 18px",
+                  fontSize: "11px",
+                  fontWeight: 500,
+                  color: "var(--mist-400)",
+                  zIndex: 20,
+                  backgroundColor: "rgba(0, 0, 0, 0.4)",
+                }}
+              >
+                <span className="mono-data">09:41</span>
+                <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                  <span className="mono-data" style={{ fontSize: "10px" }}>5G</span>
+                  <span className="mono-data" style={{ fontSize: "10px" }}>98%</span>
+                </div>
               </div>
-            </div>
+            )}
 
             {/* Main Screen Content: Setup Wizard vs Video Canvas vs Standby */}
             <div style={{ flex: 1, position: "relative", overflow: "hidden" }}>

@@ -6,57 +6,85 @@ interface VideoCanvasProps {
   isStreaming: boolean;
 }
 
-export const VideoCanvas: React.FC<VideoCanvasProps> = ({ width, height, isStreaming }) => {
+export const VideoCanvas: React.FC<VideoCanvasProps> = ({ isStreaming }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const decoderRef = useRef<VideoDecoder | null>(null);
   const isConfiguredRef = useRef<boolean>(false);
+  const currentCodecRef = useRef<string>("avc1.420020");
+  const lastTimestampRef = useRef<number>(0);
+  const hasReceivedFramesRef = useRef<boolean>(false);
+
   const [hasReceivedFrames, setHasReceivedFrames] = useState<boolean>(false);
   const [fps, setFps] = useState<number>(0);
+  const [streamResolution, setStreamResolution] = useState<{ width: number; height: number } | null>(null);
   const frameCounterRef = useRef<number>(0);
-  const bufferRef = useRef<Uint8Array>(new Uint8Array(0));
 
-  useEffect(() => {
+  // Initialize or reconfigure WebCodecs VideoDecoder
+  const setupDecoder = (codecToUse: string) => {
+    if (typeof VideoDecoder === "undefined") {
+      console.warn("[VideoCanvas] WebCodecs VideoDecoder not available in this runtime.");
+      return;
+    }
+
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d", { alpha: false, desynchronized: true });
     if (!ctx) return;
 
-    // Check if WebCodecs VideoDecoder is supported
-    if (typeof VideoDecoder === "undefined") {
-      console.warn("WebCodecs VideoDecoder API is not supported in this runtime.");
-      return;
+    if (decoderRef.current && decoderRef.current.state !== "closed") {
+      try {
+        decoderRef.current.close();
+      } catch {
+        // ignore
+      }
     }
 
     try {
       const decoder = new VideoDecoder({
         output: (frame: VideoFrame) => {
-          if (!hasReceivedFrames) {
+          const w = frame.displayWidth;
+          const h = frame.displayHeight;
+
+          // Dynamically adjust internal canvas pixel resolution to native video frame
+          // (fixes blurriness caused by rendering high-res frames onto a low-res canvas)
+          if (canvas.width !== w || canvas.height !== h) {
+            canvas.width = w;
+            canvas.height = h;
+            setStreamResolution({ width: w, height: h });
+          }
+
+          ctx.drawImage(frame, 0, 0, w, h);
+          frame.close();
+
+          frameCounterRef.current += 1;
+          if (!hasReceivedFramesRef.current) {
+            hasReceivedFramesRef.current = true;
             setHasReceivedFrames(true);
           }
-          frameCounterRef.current += 1;
-
-          // Render decoded frame onto GPU canvas
-          ctx.drawImage(frame, 0, 0, canvas.width, canvas.height);
-          frame.close();
         },
         error: (err: DOMException) => {
           console.error("[VideoDecoder error]:", err);
+          isConfiguredRef.current = false;
         },
       });
 
-      decoderRef.current = decoder;
-
-      // Initial configuration for H.264 baseline/main profile
       decoder.configure({
-        codec: "avc1.42E01E", // H.264 Baseline Profile level 3.0
+        codec: codecToUse,
         optimizeForLatency: true,
       });
-      isConfiguredRef.current = true;
-    } catch (e) {
-      console.error("Failed to initialize VideoDecoder:", e);
-    }
 
-    // Measure FPS
+      decoderRef.current = decoder;
+      currentCodecRef.current = codecToUse;
+      isConfiguredRef.current = true;
+      console.log(`[VideoCanvas] VideoDecoder initialized with codec ${codecToUse}`);
+    } catch (e) {
+      console.error("[VideoCanvas] Failed to initialize VideoDecoder:", e);
+    }
+  };
+
+  useEffect(() => {
+    setupDecoder(currentCodecRef.current);
+
     const fpsInterval = setInterval(() => {
       setFps(frameCounterRef.current);
       frameCounterRef.current = 0;
@@ -76,76 +104,65 @@ export const VideoCanvas: React.FC<VideoCanvasProps> = ({ width, height, isStrea
     };
   }, []);
 
-  // Listen for raw H.264 video chunks from Electron IPC
+  // Listen for video init (initial resolution & codec)
+  useEffect(() => {
+    if (!window.electronAPI) return;
+
+    const unInit = window.electronAPI.onVideoInit?.((meta) => {
+      console.log("[VideoCanvas] Received video:init:", meta);
+      if (meta.width && meta.height) {
+        setStreamResolution({ width: meta.width, height: meta.height });
+        if (canvasRef.current) {
+          canvasRef.current.width = meta.width;
+          canvasRef.current.height = meta.height;
+        }
+      }
+    });
+
+    const unCodec = window.electronAPI.onVideoCodec?.((codec) => {
+      console.log("[VideoCanvas] Received SPS codec update:", codec);
+      if (codec && codec !== currentCodecRef.current) {
+        setupDecoder(codec);
+      }
+    });
+
+    return () => {
+      unInit?.();
+      unCodec?.();
+    };
+  }, []);
+
+  // Listen for framed H.264 video chunks
   useEffect(() => {
     if (!window.electronAPI || !isStreaming) return;
 
-    const parseNalUnits = (chunkData: Uint8Array) => {
-      // Concatenate buffer
-      const prev = bufferRef.current;
-      const combined = new Uint8Array(prev.length + chunkData.length);
-      combined.set(prev, 0);
-      combined.set(chunkData, prev.length);
-      bufferRef.current = combined;
-
-      const data = bufferRef.current;
-      let startIndex = -1;
-
-      for (let i = 0; i < data.length - 4; i++) {
-        // Search for Annex-B start code (0x00 0x00 0x00 0x01 or 0x00 0x00 0x01)
-        const is4Byte = data[i] === 0 && data[i + 1] === 0 && data[i + 2] === 0 && data[i + 3] === 1;
-        const is3Byte = data[i] === 0 && data[i + 1] === 0 && data[i + 2] === 1;
-
-        if (is4Byte || is3Byte) {
-          if (startIndex !== -1) {
-            const nal = data.slice(startIndex, i);
-            feedNalToDecoder(nal);
-          }
-          startIndex = i;
-          if (is4Byte) i += 3;
-          else i += 2;
-        }
-      }
-
-      if (startIndex !== -1) {
-        bufferRef.current = data.slice(startIndex);
-      }
-    };
-
-    const feedNalToDecoder = (nal: Uint8Array) => {
+    const onVideoChunk = (raw: Uint8Array) => {
       const decoder = decoderRef.current;
-      if (!decoder || decoder.state !== "configured") return;
+      if (!decoder || decoder.state !== "configured" || !isConfiguredRef.current) return;
+      if (raw.length < 2) return;
 
-      // Extract NAL type (lower 5 bits of first byte after start code)
-      let offset = 3;
-      if (nal[0] === 0 && nal[1] === 0 && nal[2] === 0 && nal[3] === 1) {
-        offset = 4;
-      }
-      const nalType = nal[offset] & 0x1f;
-      const isKey = nalType === 5 || nalType === 7;
+      const isKey = raw[0] === 1;
+      const nalData = raw.subarray(1);
+
+      // Generate strictly monotonic microsecond timestamps
+      const nowUs = Math.round(performance.now() * 1000);
+      const timestamp = Math.max(nowUs, lastTimestampRef.current + 1);
+      lastTimestampRef.current = timestamp;
 
       try {
         decoder.decode(
           new EncodedVideoChunk({
             type: isKey ? "key" : "delta",
-            timestamp: performance.now() * 1000,
-            data: nal,
+            timestamp,
+            data: nalData,
           })
         );
       } catch (err) {
-        // Handled silently for malformed initial slices
+        console.debug("[VideoCanvas] decode error:", err);
       }
     };
 
-    // Subscribing to IPC video stream
-    const onVideoChunk = (chunk: Uint8Array) => {
-      parseNalUnits(chunk);
-    };
-
-    // Attach to electronAPI if present
-    const unsubscribe = (window as unknown as { electronAPI?: { onVideoChunk?: (cb: (c: Uint8Array) => void) => () => void } })
-      .electronAPI?.onVideoChunk?.(onVideoChunk);
-
+    const unsubscribe = window.electronAPI.onVideoChunk?.(onVideoChunk);
     return () => {
       unsubscribe?.();
     };
@@ -161,17 +178,17 @@ export const VideoCanvas: React.FC<VideoCanvasProps> = ({ width, height, isStrea
         alignItems: "center",
         justifyContent: "center",
         backgroundColor: "#000000",
+        overflow: "hidden",
       }}
     >
       <canvas
         ref={canvasRef}
-        width={width}
-        height={height}
         style={{
           width: "100%",
           height: "100%",
           objectFit: "contain",
           display: hasReceivedFrames ? "block" : "none",
+          imageRendering: "auto",
         }}
       />
 
@@ -184,17 +201,19 @@ export const VideoCanvas: React.FC<VideoCanvasProps> = ({ width, height, isStrea
             bottom: "8px",
             right: "12px",
             fontSize: "10px",
-            color: "rgba(255, 255, 255, 0.45)",
+            color: "rgba(255, 255, 255, 0.65)",
             pointerEvents: "none",
-            backgroundColor: "rgba(0, 0, 0, 0.5)",
-            padding: "2px 6px",
+            backgroundColor: "rgba(0, 0, 0, 0.65)",
+            backdropFilter: "blur(4px)",
+            padding: "2px 8px",
             borderRadius: "4px",
+            border: "1px solid rgba(255, 255, 255, 0.1)",
+            zIndex: 30,
           }}
         >
-          {fps} FPS • WebCodecs GPU
+          {fps} FPS {streamResolution ? `• ${streamResolution.width}×${streamResolution.height} ` : ""}• WebCodecs GPU
         </div>
       )}
     </div>
   );
 };
-
