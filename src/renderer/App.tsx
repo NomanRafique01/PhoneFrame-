@@ -152,18 +152,19 @@ export const App: React.FC = () => {
   // Window size adaptation via Electron IPC
   useEffect(() => {
     const PADDING = 48; // padding for HUD and breathing room
-    const INSPECTOR_WIDTH = 320;
-    const INSPECTOR_MIN_HEIGHT = 520;
-    const INSPECTOR_EXTRA_WIDTH = showInspector ? INSPECTOR_WIDTH : 0;
-    const targetWidth = totalPhoneWidth + PADDING + INSPECTOR_EXTRA_WIDTH;
-    const targetHeight = showInspector
-      ? Math.max(totalPhoneHeight + PADDING, INSPECTOR_MIN_HEIGHT)
-      : totalPhoneHeight + PADDING;
+    // Inspector mode fills the work area so the panel pins to the screen's right edge
+    const targetWidth = showInspector ? window.screen.availWidth : totalPhoneWidth + PADDING;
+    const targetHeight = showInspector ? window.screen.availHeight : totalPhoneHeight + PADDING;
 
     if (window.electronAPI?.setWindowSize) {
       window.electronAPI.setWindowSize(targetWidth, targetHeight);
     }
   }, [totalPhoneWidth, totalPhoneHeight, showInspector]);
+
+  // Click-through when the pointer is off the window (transparent overlay must not block the desktop)
+  useEffect(() => {
+    window.electronAPI?.setIgnoreMouseEvents?.(!isHovered);
+  }, [isHovered]);
 
   // Window Always-on-top handler
   const handleTogglePin = async () => {

@@ -9,10 +9,10 @@ let mirrorManager: ScrcpyServerManager | null = null;
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
-    width: 480,
-    height: 880,
-    minWidth: 320,
-    minHeight: 400,
+    width: 350,
+    height: 680,
+    minWidth: 200,
+    minHeight: 300,
     frame: false,
     transparent: true,
     backgroundColor: "#00000000",
@@ -113,17 +113,20 @@ ipcMain.handle("window:close", () => {
 
 ipcMain.handle("window:setWindowSize", (_event, width: number, height: number) => {
   if (!mainWindow) return;
-  const currentBounds = mainWindow.getBounds();
-  const primaryDisplay = screen.getPrimaryDisplay();
-  const maxW = Math.min(width, primaryDisplay.workAreaSize.width);
-  const maxH = Math.min(height, primaryDisplay.workAreaSize.height);
+  const workArea = screen.getPrimaryDisplay().workArea;
+  const w = Math.min(Math.round(width), workArea.width);
+  const h = Math.min(Math.round(height), workArea.height);
 
   mainWindow.setBounds({
-    x: currentBounds.x,
-    y: currentBounds.y,
-    width: Math.round(maxW),
-    height: Math.round(maxH),
+    x: workArea.x + Math.round((workArea.width - w) / 2),
+    y: workArea.y + Math.round((workArea.height - h) / 2),
+    width: w,
+    height: h,
   });
+});
+
+ipcMain.handle("window:setIgnoreMouseEvents", (_event, flag: boolean) => {
+  mainWindow?.setIgnoreMouseEvents(flag, { forward: true });
 });
 
 // ADB IPC handlers

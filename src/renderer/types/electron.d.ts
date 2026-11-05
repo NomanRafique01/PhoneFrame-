@@ -30,6 +30,7 @@ export interface FloatingPhoneAPI {
   minimize: () => Promise<void>;
   close: () => Promise<void>;
   setWindowSize: (width: number, height: number) => Promise<void>;
+  setIgnoreMouseEvents: (flag: boolean) => Promise<void>;
 
   // ADB device tracking
   getAdbStatus: () => Promise<AdbStatusPayload>;

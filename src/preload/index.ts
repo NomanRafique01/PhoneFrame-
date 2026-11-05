@@ -32,6 +32,7 @@ export interface FloatingPhoneAPI {
   minimize: () => Promise<void>;
   close: () => Promise<void>;
   setWindowSize: (width: number, height: number) => Promise<void>;
+  setIgnoreMouseEvents: (flag: boolean) => Promise<void>;
 
   // ADB device tracking
   getAdbStatus: () => Promise<AdbStatusPayload>;
@@ -54,6 +55,7 @@ const api: FloatingPhoneAPI = {
   minimize: () => ipcRenderer.invoke("window:minimize"),
   close: () => ipcRenderer.invoke("window:close"),
   setWindowSize: (width: number, height: number) => ipcRenderer.invoke("window:setWindowSize", width, height),
+  setIgnoreMouseEvents: (flag: boolean) => ipcRenderer.invoke("window:setIgnoreMouseEvents", flag),
 
   getAdbStatus: () => ipcRenderer.invoke("adb:getStatus"),
   onAdbStatusChange: (callback: (status: AdbStatusPayload) => void) => {
