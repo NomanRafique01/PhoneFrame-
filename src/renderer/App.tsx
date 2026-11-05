@@ -452,11 +452,13 @@ export const App: React.FC = () => {
         <aside
           className="app-no-drag"
           style={{
+            position: "absolute",
+            top: 0,
+            right: 0,
             width: "320px",
             minWidth: "320px",
             maxWidth: "320px",
             height: "100%",
-            alignSelf: "stretch",
             backgroundColor: "var(--surface)",
             border: "1px solid var(--border)",
             borderTop: "none",
