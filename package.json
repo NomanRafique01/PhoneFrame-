@@ -1,5 +1,5 @@
 {
-  "name": "floatingphone",
+  "name": "phoneframe",
   "version": "0.1.0",
   "description": "Floating phone-frame screen mirroring for Android app developers.",
   "main": "dist/main/index.js",

@@ -1,7 +1,7 @@
-# FloatingPhone: Project Context
+# PhoneFrame: Project Context
 
 ## What we are building
-FloatingPhone is a desktop app (Electron + React + TypeScript) that mirrors a USB-connected
+PhoneFrame is a desktop app (Electron + React + TypeScript) that mirrors a USB-connected
 Android phone inside a floating, draggable, phone-shaped frame. It is meant to sit over
 the screen while the user develops apps.
 

@@ -1,8 +1,8 @@
-# FloatingPhone 📱
+# PhoneFrame 📱
 
 > A floating, draggable, transparent desktop overlay for Android screen mirroring built with Electron, React, TypeScript, and WebCodecs.
 
-FloatingPhone is designed for Android developers who want a responsive, phone-shaped viewport floating on top of their workspace without the clutter of emulator windows or generic mirroring toolbars.
+PhoneFrame is designed for Android developers who want a responsive, phone-shaped viewport floating on top of their workspace without the clutter of emulator windows or generic mirroring toolbars.
 
 ---
 
@@ -19,7 +19,7 @@ FloatingPhone is designed for Android developers who want a responsive, phone-sh
 ## 🏗️ Project Architecture
 
 ```
-FloatingPhone/
+PhoneFrame/
 ├── assets/                       # Embedded binaries & server JARs
 │   ├── scrcpy-server-v3.1.jar    # Official scrcpy server v3.1 JAR
 │   └── scrcpy-server.jar         # Fallback server JAR
@@ -79,8 +79,8 @@ FloatingPhone/
 ### Installation
 
 ```bash
-git clone https://github.com/your-username/FloatingPhone.git
-cd FloatingPhone
+git clone https://github.com/your-username/PhoneFrame.git
+cd PhoneFrame
 npm install
 ```
 
