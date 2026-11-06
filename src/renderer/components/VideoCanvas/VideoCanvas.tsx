@@ -200,7 +200,7 @@ export const VideoCanvas: React.FC<VideoCanvasProps> = ({ isStreaming }) => {
           }}
         >
           <span className="stream-starting-dot" />
-          <span>{isStreaming ? "WAITING FOR VIDEO…" : "STARTING STREAM…"}</span>
+          <span>{isStreaming ? "WAITING FOR STREAM…" : "STARTING STREAM…"}</span>
         </div>
       )}
 

@@ -507,7 +507,7 @@ export const App: React.FC = () => {
                           cursor: isStarting ? "not-allowed" : "pointer",
                         }}
                       >
-                        {isStarting ? "Starting…" : "Start Mirroring"}
+                        {isStarting ? "Starting…" : "Start Stream"}
                       </button>
                     )}
 

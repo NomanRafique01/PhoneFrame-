@@ -417,7 +417,7 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({ adbStatus, onComplete,
             fontSize: "11px",
           }}
         >
-          {currentStep.id === "ready" ? "Start Mirroring" : "Next Step"}
+          {currentStep.id === "ready" ? "Start Stream" : "Next Step"}
           <ChevronRightIcon size={14} />
         </button>
       </div>
