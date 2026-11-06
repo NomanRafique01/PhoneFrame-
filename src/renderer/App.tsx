@@ -166,6 +166,11 @@ export const App: React.FC = () => {
     window.electronAPI?.setIgnoreMouseEvents?.(!(isHovered || isDragging || showInspector));
   }, [isHovered, isDragging, showInspector]);
 
+  // Opening the settings page glides the phone back to the center of its page
+  useEffect(() => {
+    if (showInspector) setPhoneOffset({ x: 0, y: 0 });
+  }, [showInspector]);
+
   // Window Always-on-top handler
   const handleTogglePin = async () => {
     const newFlag = !isPinned;
@@ -221,11 +226,15 @@ export const App: React.FC = () => {
     const stage = stageRef.current;
     const wrap = phoneWrapRef.current;
     if (!stage || !wrap) return { x, y };
-    const maxX = Math.max(0, (stage.clientWidth - wrap.offsetWidth) / 2 - 24 - 64);
-    const maxY = Math.max(0, (stage.clientHeight - wrap.offsetHeight) / 2 - 24);
+    // Phone edges can reach every corner of the page; only the right side
+    // keeps a 64px gutter so the revealed HUD never crosses into the panel strip.
+    const reachX = Math.max(0, (stage.clientWidth - wrap.offsetWidth) / 2);
+    const reachY = Math.max(0, (stage.clientHeight - wrap.offsetHeight) / 2);
+    const minX = -reachX;
+    const maxX = Math.max(minX, reachX - 64);
     return {
-      x: Math.min(maxX, Math.max(-maxX, x)),
-      y: Math.min(maxY, Math.max(-maxY, y)),
+      x: Math.min(maxX, Math.max(minX, x)),
+      y: Math.min(reachY, Math.max(-reachY, y)),
     };
   };
 
@@ -298,6 +307,10 @@ export const App: React.FC = () => {
             position: "relative",
             display: "flex",
             transform: `translate(${phoneOffset.x}px, ${phoneOffset.y}px)`,
+            // Smooth glide when recentering for the panel; 1:1 tracking while dragging
+            transition: isDragging
+              ? "none"
+              : "transform 320ms cubic-bezier(0.16, 1, 0.3, 1)",
           }}
           onMouseEnter={handleMouseEnter}
           onMouseLeave={handleMouseLeave}
