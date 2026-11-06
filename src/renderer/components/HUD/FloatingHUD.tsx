@@ -1,5 +1,6 @@
 import React from "react";
 import {
+  ChevronLeftIcon,
   HandIcon,
   PinIcon,
   RotateIcon,
@@ -11,6 +12,7 @@ import {
 interface FloatingHUDProps {
   dragMode: boolean;
   onToggleDragMode: () => void;
+  onCollapse: () => void;
   isPinned: boolean;
   onTogglePin: () => void;
   onRotate: () => void;
@@ -23,6 +25,7 @@ interface FloatingHUDProps {
 export const FloatingHUD: React.FC<FloatingHUDProps> = ({
   dragMode,
   onToggleDragMode,
+  onCollapse,
   isPinned,
   onTogglePin,
   onRotate,
@@ -50,6 +53,21 @@ export const FloatingHUD: React.FC<FloatingHUDProps> = ({
         transition: "opacity 160ms cubic-bezier(0.16, 1, 0.3, 1), transform 160ms cubic-bezier(0.16, 1, 0.3, 1)",
       }}
     >
+      {/* Collapse HUD */}
+      <button
+        onClick={onCollapse}
+        title="Collapse HUD"
+        aria-label="Collapse HUD"
+        style={{
+          width: "36px",
+          height: "36px",
+          borderRadius: "var(--radius-sm)",
+          color: "var(--mist-400)",
+        }}
+      >
+        <ChevronLeftIcon size={16} />
+      </button>
+
       {/* Hand / Phone Drag Mode */}
       <button
         onClick={onToggleDragMode}

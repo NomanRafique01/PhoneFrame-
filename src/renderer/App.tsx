@@ -8,7 +8,7 @@ import {
 import { FloatingHUD } from "./components/HUD/FloatingHUD";
 import { SetupWizard } from "./components/SetupWizard";
 import { VideoCanvas } from "./components/VideoCanvas/VideoCanvas";
-import { SmartphoneIcon } from "./components/icons";
+import { ChevronRightIcon, SmartphoneIcon } from "./components/icons";
 import type { AdbStatusPayload, MirrorState } from "./types/electron";
 
 // Drag mode requires a deliberate hold so a quick tap or a small wobble never
@@ -67,6 +67,7 @@ export const App: React.FC = () => {
   const [dragMode, setDragMode] = useState(false);
   const [isScreenInteracting, setIsScreenInteracting] = useState(false);
   const [touchHudOpen, setTouchHudOpen] = useState(false);
+  const [isHudCollapsed, setIsHudCollapsed] = useState(false);
   const [phoneOffset, setPhoneOffset] = useState({ x: 0, y: 0 });
   const hideTimerRef = useRef<number | null>(null);
   const tapRef = useRef<{ pointerId: number; x: number; y: number; t: number } | null>(null);
@@ -436,8 +437,12 @@ export const App: React.FC = () => {
   const isStreaming = mirrorState === "running";
   const isStarting = mirrorState === "starting";
   // Shared visibility for the drawer: phone hover (phone + HUD are one wrapper,
-  // so moving between them never flickers), drag, inspector, or touch toggle
-  const hudVisible = isHovered || showInspector || isDragging || touchHudOpen;
+  // so moving between them never flickers), drag, inspector, or touch toggle.
+  // A manual collapse always wins and hands over to the compact edge toggle.
+  const hudVisible = !isHudCollapsed && (isHovered || showInspector || isDragging || touchHudOpen);
+  // The tab sinks half a bezel into the chassis so it reads as part of the
+  // frame; at every scale it stays clear of the screen cutout.
+  const edgeTabOverlap = Math.max(2, Math.round(scaledOptions.bezelWidth / 2));
 
   return (
     <div
@@ -509,6 +514,7 @@ export const App: React.FC = () => {
             <FloatingHUD
               dragMode={dragMode}
               onToggleDragMode={handleToggleDragMode}
+              onCollapse={() => setIsHudCollapsed(true)}
               isPinned={isPinned}
               onTogglePin={handleTogglePin}
               onRotate={handleRotate}
@@ -518,6 +524,44 @@ export const App: React.FC = () => {
               onClose={handleClose}
             />
           </div>
+
+          {/* Collapsed HUD edge tab — embedded in the right bezel so it reads
+              as a physical side-mounted control rather than a floating button */}
+          <button
+            type="button"
+            className="app-no-drag"
+            onClick={() => setIsHudCollapsed(false)}
+            title="Expand HUD"
+            aria-label="Expand HUD"
+            aria-expanded={!isHudCollapsed}
+            aria-hidden={!isHudCollapsed}
+            tabIndex={isHudCollapsed ? 0 : -1}
+            style={{
+              position: "absolute",
+              top: "50%",
+              left: `calc(100% - ${edgeTabOverlap}px)`,
+              zIndex: 100,
+              width: "22px",
+              height: "64px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: 0,
+              background: `linear-gradient(180deg, ${currentColorDef.borderHex} 0%, ${currentColorDef.hex} 100%)`,
+              borderRadius: "0 10px 10px 0",
+              border: `1px solid ${currentColorDef.borderHex}`,
+              borderLeft: "none",
+              boxShadow: `0 3px 10px rgba(0, 0, 0, 0.45), inset 0 1px 0 ${currentColorDef.highlightHex}`,
+              color: "var(--mist-200)",
+              opacity: isHudCollapsed ? 1 : 0,
+              pointerEvents: isHudCollapsed ? "auto" : "none",
+              transform: `translateY(-50%) translateX(${isHudCollapsed ? 0 : -12}px)`,
+              transition:
+                "transform 320ms cubic-bezier(0.22, 1, 0.36, 1), opacity 320ms cubic-bezier(0.22, 1, 0.36, 1)",
+            }}
+          >
+            <ChevronRightIcon size={14} />
+          </button>
 
           {/* Procedural SVG Phone Frame Engine */}
           <PhoneFrame
