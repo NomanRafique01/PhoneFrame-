@@ -17,10 +17,29 @@ function applyPin(): void {
   mainWindow.setAlwaysOnTop(pinned, PIN_LEVEL);
 }
 
+// Fullscreen bounds minus the auto-hidden-taskbar reserve, shared by window
+// creation and the setWindowSize IPC so the window never appears at any
+// intermediate position.
+function computeWindowBounds(): { x: number; y: number; width: number; height: number } {
+  const display = screen.getPrimaryDisplay();
+  const workArea = display.workArea;
+  const w = workArea.width;
+  let h = workArea.height;
+  const taskbarThickness = display.bounds.height - workArea.height;
+  const reserveBottom = taskbarThickness < 4 ? 48 : 0;
+  h = Math.max(200, h - reserveBottom);
+  return {
+    x: workArea.x + Math.round((workArea.width - w) / 2),
+    y: reserveBottom > 0 ? workArea.y : workArea.y + Math.round((workArea.height - h) / 2),
+    width: w,
+    height: h,
+  };
+}
+
 function createWindow(): void {
   mainWindow = new BrowserWindow({
-    width: 350,
-    height: 680,
+    ...computeWindowBounds(),
+    show: false,
     minWidth: 200,
     minHeight: 300,
     frame: false,
@@ -42,6 +61,10 @@ function createWindow(): void {
   } else {
     mainWindow.loadFile(path.join(__dirname, "../renderer/index.html"));
   }
+
+  // Never flash the window at a half-loaded position: reveal it only once the
+  // renderer is ready to paint the centered frame.
+  mainWindow.once("ready-to-show", () => mainWindow?.show());
 
   // Floating phone stays above other apps; it only minimizes/closes via the HUD
   applyPin();
@@ -127,27 +150,11 @@ ipcMain.handle("window:close", () => {
   mainWindow?.close();
 });
 
-ipcMain.handle("window:setWindowSize", (_event, width: number, height: number) => {
+ipcMain.handle("window:setWindowSize", (_event, _width: number, _height: number) => {
   if (!mainWindow) return;
-  const display = screen.getPrimaryDisplay();
-  const workArea = display.workArea;
-  const w = Math.min(Math.round(width), workArea.width);
-  let h = Math.min(Math.round(height), workArea.height);
-
-  // A topmost window covering the screen's bottom edge prevents an auto-hidden
-  // taskbar from popping up (its work area then spans the full screen height).
-  // Reserve the taskbar's height along the bottom so the reveal edge stays clear.
-  const taskbarThickness = display.bounds.height - workArea.height;
-  const reserveBottom = taskbarThickness < 4 ? 48 : 0;
-  h = Math.max(200, h - reserveBottom);
-
-  mainWindow.setBounds({
-    x: workArea.x + Math.round((workArea.width - w) / 2),
-    // Anchor to the top when reserving, so the entire gap sits at the bottom
-    y: reserveBottom > 0 ? workArea.y : workArea.y + Math.round((workArea.height - h) / 2),
-    width: w,
-    height: h,
-  });
+  // The renderer only ever requests the fullscreen overlay, so creation and
+  // this resize resolve to the same bounds and the window never shifts.
+  mainWindow.setBounds(computeWindowBounds());
 });
 
 ipcMain.handle("window:setIgnoreMouseEvents", (_event, flag: boolean) => {
