@@ -710,8 +710,17 @@ export const App: React.FC = () => {
   const sideKeyRadius = Math.max(3, Math.round(4 * frameScale));
   const sideKeyChevron = Math.max(7, Math.round(8 * frameScale));
   // HUD nav: 6px top padding + 36px collapse button → 24px to its center.
-  const collapsedKeyTop =
-    hudHeight > 0 ? `calc(50% - ${Math.round(hudHeight / 2 - 24)}px)` : "41%";
+  // The drawer is centered on the frame, but a landscape frame is shorter than
+  // the HUD itself, which would put that anchor above the chassis. Keep the key
+  // on the right bezel by clamping it clear of the rounded corners.
+  const frameHeight = screenHeight + scaledOptions.bezelWidth * 2;
+  const desiredKeyTop =
+    hudHeight > 0 ? frameHeight / 2 - (hudHeight / 2 - 24) : frameHeight * 0.41;
+  const minKeyTop = scaledOptions.outerRadius + sideKeyHeight / 2;
+  const maxKeyTop = frameHeight - scaledOptions.outerRadius - sideKeyHeight / 2;
+  const collapsedKeyTop = `${Math.round(
+    Math.min(Math.max(desiredKeyTop, minKeyTop), maxKeyTop)
+  )}px`;
 
   return (
     <div
