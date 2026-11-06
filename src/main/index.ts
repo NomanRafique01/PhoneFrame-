@@ -7,6 +7,10 @@ let mainWindow: BrowserWindow | null = null;
 const adbTracker = new AdbTracker();
 let mirrorManager: ScrcpyServerManager | null = null;
 
+// Windows picks the window/taskbar/shortcut icon from this path. Resolved like
+// the scrcpy assets so dev runs and packaged builds share one location.
+const APP_ICON_PATH = path.join(process.cwd(), "assets", "phoneframe-icon.ico");
+
 // The floating phone must stay above every other app; re-assert topmost
 // whenever focus changes, because new apps can otherwise rise above it.
 let pinned = true;
@@ -85,6 +89,7 @@ function createWindow(): void {
   mainWindow = new BrowserWindow({
     ...computeWindowBounds(),
     show: false,
+    icon: APP_ICON_PATH,
     minWidth: 200,
     minHeight: 300,
     frame: false,
@@ -124,6 +129,10 @@ function createWindow(): void {
 }
 
 app.whenReady().then(async () => {
+  // Give the app its own taskbar identity so Windows groups the window (and a
+  // pinned shortcut) under PhoneFrame instead of the generic Electron entry.
+  app.setAppUserModelId("com.phoneframe.app");
+
   const resolvedAdb = await adbTracker.resolveAdbPath();
   mirrorManager = new ScrcpyServerManager(resolvedAdb);
 

@@ -13,6 +13,7 @@ import { VideoCanvas } from "./components/VideoCanvas/VideoCanvas";
 import { ChevronRightIcon, SmartphoneIcon } from "./components/icons";
 import { usePhoneAudio } from "./audio/usePhoneAudio";
 import type { AdbStatusPayload, MirrorState } from "./types/electron";
+import appIcon from "../../assets/phoneframe-icon.png";
 
 // Drag mode requires a deliberate hold so a quick tap or a small wobble never
 // moves the frame. 180 ms is short enough to feel immediate, long enough to
@@ -1098,15 +1099,41 @@ export const App: React.FC = () => {
           }}
         >
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <h3
-              style={{
-                fontSize: "var(--text-sm)",
-                fontWeight: 600,
-                color: "var(--mist-200)",
-              }}
-            >
-              Frame Inspector
-            </h3>
+            <div style={{ display: "flex", alignItems: "center", gap: "10px", minWidth: 0 }}>
+              <img
+                src={appIcon}
+                alt=""
+                width={28}
+                height={28}
+                style={{
+                  flexShrink: 0,
+                  borderRadius: "8px",
+                  border: "1px solid var(--border)",
+                }}
+              />
+              <div style={{ minWidth: 0 }}>
+                <div
+                  className="mono-data"
+                  style={{
+                    fontSize: "9px",
+                    letterSpacing: "0.1em",
+                    color: "var(--text-muted)",
+                  }}
+                >
+                  PHONEFRAME
+                </div>
+                <h3
+                  style={{
+                    fontSize: "var(--text-sm)",
+                    fontWeight: 600,
+                    color: "var(--mist-200)",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  Frame Inspector
+                </h3>
+              </div>
+            </div>
             <button
               onClick={() => setShowInspector(false)}
               style={{
