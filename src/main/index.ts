@@ -129,13 +129,22 @@ ipcMain.handle("window:close", () => {
 
 ipcMain.handle("window:setWindowSize", (_event, width: number, height: number) => {
   if (!mainWindow) return;
-  const workArea = screen.getPrimaryDisplay().workArea;
+  const display = screen.getPrimaryDisplay();
+  const workArea = display.workArea;
   const w = Math.min(Math.round(width), workArea.width);
-  const h = Math.min(Math.round(height), workArea.height);
+  let h = Math.min(Math.round(height), workArea.height);
+
+  // A topmost window covering the screen's bottom edge prevents an auto-hidden
+  // taskbar from popping up (its work area then spans the full screen height).
+  // Reserve the taskbar's height along the bottom so the reveal edge stays clear.
+  const taskbarThickness = display.bounds.height - workArea.height;
+  const reserveBottom = taskbarThickness < 4 ? 48 : 0;
+  h = Math.max(200, h - reserveBottom);
 
   mainWindow.setBounds({
     x: workArea.x + Math.round((workArea.width - w) / 2),
-    y: workArea.y + Math.round((workArea.height - h) / 2),
+    // Anchor to the top when reserving, so the entire gap sits at the bottom
+    y: reserveBottom > 0 ? workArea.y : workArea.y + Math.round((workArea.height - h) / 2),
     width: w,
     height: h,
   });
