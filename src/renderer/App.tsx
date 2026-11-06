@@ -54,6 +54,8 @@ export const App: React.FC = () => {
   const [phoneOffset, setPhoneOffset] = useState({ x: 0, y: 0 });
   const hideTimerRef = useRef<number | null>(null);
   const dragRef = useRef<{ pointerId: number; lastX: number; lastY: number } | null>(null);
+  const stageRef = useRef<HTMLDivElement>(null);
+  const phoneWrapRef = useRef<HTMLDivElement>(null);
 
   // Persist scale preference across sessions
   useEffect(() => {
@@ -212,11 +214,25 @@ export const App: React.FC = () => {
     }, 400);
   };
 
-  // Drag the frame by its bezel: the screen viewport, HUD, and controls opt out
+  // Drag the whole phone (bezel and screen) by any non-interactive part; only
+  // real controls (buttons, inputs, links) opt out. The offset is clamped to
+  // the phone page so the frame can never cover the settings panel.
+  const clampOffset = (x: number, y: number) => {
+    const stage = stageRef.current;
+    const wrap = phoneWrapRef.current;
+    if (!stage || !wrap) return { x, y };
+    const maxX = Math.max(0, (stage.clientWidth - wrap.offsetWidth) / 2 - 24);
+    const maxY = Math.max(0, (stage.clientHeight - wrap.offsetHeight) / 2 - 24);
+    return {
+      x: Math.min(maxX, Math.max(-maxX, x)),
+      y: Math.min(maxY, Math.max(-maxY, y)),
+    };
+  };
+
   const handleDragStart = (e: React.PointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
     const target = e.target as HTMLElement;
-    if (target.closest(".app-no-drag, button, input, select, textarea, a")) return;
+    if (target.closest("button, input, select, textarea, a")) return;
     dragRef.current = { pointerId: e.pointerId, lastX: e.clientX, lastY: e.clientY };
     e.currentTarget.setPointerCapture(e.pointerId);
     setIsDragging(true);
@@ -230,9 +246,7 @@ export const App: React.FC = () => {
     if (dx === 0 && dy === 0) return;
     drag.lastX = e.clientX;
     drag.lastY = e.clientY;
-    // Drag the phone inside the fullscreen window so the screen-docked
-    // inspector stays fixed; a transform avoids any layout recalculation.
-    setPhoneOffset((prev) => ({ x: prev.x + dx, y: prev.y + dy }));
+    setPhoneOffset((prev) => clampOffset(prev.x + dx, prev.y + dy));
   };
 
   const handleDragEnd = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -263,9 +277,10 @@ export const App: React.FC = () => {
         position: "relative",
       }}
     >
-      {/* Phone Stage Container (Centered with drop shadow padding) */}
+      {/* Phone page (left region): the frame lives and drags inside this area only */}
       <div
         className="phone-stage"
+        ref={stageRef}
         style={{
           flex: 1,
           display: "flex",
@@ -273,10 +288,12 @@ export const App: React.FC = () => {
           justifyContent: "center",
           position: "relative",
           padding: "24px",
+          marginRight: "320px",
         }}
       >
         {/* Phone + HUD wrapper (shrink-fits the frame so the HUD can anchor to it) */}
         <div
+          ref={phoneWrapRef}
           style={{
             position: "relative",
             display: "flex",
@@ -494,7 +511,8 @@ export const App: React.FC = () => {
         </div>
       </div>
 
-      {/* Collapsible Frame Inspector Drawer (Docked to the right of the floating phone) */}
+      {/* Settings page (right region): permanently reserved strip, fixed to the
+          screen's right edge; phone drag can never reach or move it */}
       {showInspector && (
         <aside
           className="app-no-drag"
