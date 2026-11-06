@@ -6,6 +6,7 @@ import {
   FRAME_COLOR_DEFINITIONS,
 } from "./components/PhoneFrame";
 import { FloatingHUD } from "./components/HUD/FloatingHUD";
+import { FullscreenControls } from "./components/FullscreenControls/FullscreenControls";
 import { SetupWizard } from "./components/SetupWizard";
 import { VideoCanvas } from "./components/VideoCanvas/VideoCanvas";
 import { ChevronRightIcon, SmartphoneIcon } from "./components/icons";
@@ -17,6 +18,12 @@ import type { AdbStatusPayload, MirrorState } from "./types/electron";
 // distinguish intent from a click.
 const DRAG_HOLD_MS = 180;
 const DRAG_MOVE_TOLERANCE = 6;
+
+// Rotation restarts the device encoder, so size reports can alternate for a
+// few frames. Wait for the stream to settle; only the final size is applied.
+const ORIENTATION_SETTLE_MS = 160;
+// Breathing room around the mirrored display in immersive mode.
+const FULLSCREEN_MARGIN = 16;
 
 export const App: React.FC = () => {
   const [frameOptions, setFrameOptions] = useState<PhoneFrameOptions>({
@@ -93,6 +100,8 @@ export const App: React.FC = () => {
   const [isScreenInteracting, setIsScreenInteracting] = useState(false);
   const [touchHudOpen, setTouchHudOpen] = useState(false);
   const [isHudCollapsed, setIsHudCollapsed] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [viewport, setViewport] = useState({ width: window.innerWidth, height: window.innerHeight });
   const [hudHeight, setHudHeight] = useState(0);
   const [phoneOffset, setPhoneOffset] = useState({ x: 0, y: 0 });
   const hideTimerRef = useRef<number | null>(null);
@@ -107,6 +116,14 @@ export const App: React.FC = () => {
     lastY: number;
   } | null>(null);
   const startInFlightRef = useRef(false);
+  // Read inside listeners bound once, so Escape and stream teardown always see
+  // the live fullscreen value instead of the mount-time snapshot.
+  const isFullscreenRef = useRef(false);
+  const orientationTimerRef = useRef<number | null>(null);
+  const pendingOrientationRef = useRef<{
+    orientation: "portrait" | "landscape";
+    aspectRatio: { width: number; height: number };
+  } | null>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const phoneWrapRef = useRef<HTMLDivElement>(null);
   const hudDrawerRef = useRef<HTMLDivElement>(null);
@@ -115,6 +132,45 @@ export const App: React.FC = () => {
     setSessionNotice(text);
     if (noticeTimerRef.current) window.clearTimeout(noticeTimerRef.current);
     noticeTimerRef.current = window.setTimeout(() => setSessionNotice(null), 5000);
+  };
+
+  // Coalesces stream-size reports (init metadata and decoded frames) into a
+  // single orientation commit. Rotation restarts the device encoder, so the
+  // reports briefly alternate; only the settled size may move the frame.
+  const scheduleStreamOrientation = (width: number, height: number) => {
+    if (!width || !height) return;
+
+    const gcd = (a: number, b: number): number => (b === 0 ? a : gcd(b, a % b));
+    const divisor = gcd(width, height);
+    const ratioW = Math.round((width / divisor) * 10) / 10;
+    const ratioH = Math.round((height / divisor) * 10) / 10;
+
+    pendingOrientationRef.current = {
+      orientation: width >= height ? "landscape" : "portrait",
+      aspectRatio: {
+        width: Math.min(ratioW, ratioH),
+        height: Math.max(ratioW, ratioH),
+      },
+    };
+
+    if (orientationTimerRef.current !== null) {
+      window.clearTimeout(orientationTimerRef.current);
+    }
+    orientationTimerRef.current = window.setTimeout(() => {
+      orientationTimerRef.current = null;
+      const next = pendingOrientationRef.current;
+      if (!next) return;
+      setFrameOptions((prev) => {
+        if (
+          prev.orientation === next.orientation &&
+          prev.aspectRatio.width === next.aspectRatio.width &&
+          prev.aspectRatio.height === next.aspectRatio.height
+        ) {
+          return prev;
+        }
+        return { ...prev, orientation: next.orientation, aspectRatio: next.aspectRatio };
+      });
+    }, ORIENTATION_SETTLE_MS);
   };
 
   // Persist scale preference across sessions
@@ -154,6 +210,42 @@ export const App: React.FC = () => {
   }, [dpadEnabled]);
 
   usePhoneAudio(audioMuted, audioVolume);
+
+  // Native fullscreen state, including exits triggered outside the HUD
+  // (Escape handled natively, OS shortcuts, app deactivation).
+  useEffect(() => {
+    window.electronAPI?.getFullscreen?.().then((flag) => {
+      if (typeof flag === "boolean") setIsFullscreen(flag);
+    });
+
+    const unsubscribe = window.electronAPI?.onFullscreenChange?.((flag) => setIsFullscreen(flag));
+    return () => unsubscribe?.();
+  }, []);
+
+  useEffect(() => {
+    isFullscreenRef.current = isFullscreen;
+  }, [isFullscreen]);
+
+  // Escape leaves immersive mode before it can reach the phone as BACK.
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || !isFullscreenRef.current) return;
+      event.preventDefault();
+      event.stopPropagation();
+      setIsFullscreen(false);
+      void window.electronAPI?.setFullscreen?.(false);
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, []);
+
+  // The frame is fitted to the real window, which grows when fullscreen starts.
+  useEffect(() => {
+    const measure = () => setViewport({ width: window.innerWidth, height: window.innerHeight });
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, []);
 
   // Subscribe to real-time ADB status events & mirror state
   useEffect(() => {
@@ -201,6 +293,13 @@ export const App: React.FC = () => {
 
         setMirrorState(payload.state);
 
+        // Immersive mode only makes sense while a stream is live; never strand
+        // the user on a black fullscreen with the setup screen behind it.
+        if (isEnded && isFullscreenRef.current) {
+          setIsFullscreen(false);
+          void window.electronAPI?.setFullscreen?.(false);
+        }
+
         // Any stream termination — manual stop, unplug, scrcpy crash — returns
         // to the connection screen. ADB detection keeps running underneath.
         if (wasActive && isEnded) {
@@ -214,24 +313,11 @@ export const App: React.FC = () => {
         }
       });
 
-      // Stream resolution / init listener
+      // Stream init metadata only describes the size at start; decoded frames
+      // carry every later size change (scrcpy 3.1 restarts encoding on
+      // rotation without re-sending metadata).
       const unsubscribeVideoInit = window.electronAPI?.onVideoInit?.((meta) => {
-        if (meta.width && meta.height) {
-          const w = meta.width;
-          const h = meta.height;
-          const gcd = (a: number, b: number): number => (b === 0 ? a : gcd(b, a % b));
-          const divisor = gcd(w, h);
-          const ratioW = Math.round((w / divisor) * 10) / 10;
-          const ratioH = Math.round((h / divisor) * 10) / 10;
-
-          setFrameOptions((prev) => ({
-            ...prev,
-            aspectRatio: {
-              width: Math.min(ratioW, ratioH),
-              height: Math.max(ratioW, ratioH),
-            },
-          }));
-        }
+        scheduleStreamOrientation(meta.width, meta.height);
       });
 
       return () => {
@@ -239,6 +325,10 @@ export const App: React.FC = () => {
         unsubscribeMirror?.();
         unsubscribeVideoInit?.();
         if (noticeTimerRef.current) window.clearTimeout(noticeTimerRef.current);
+        if (orientationTimerRef.current !== null) {
+          window.clearTimeout(orientationTimerRef.current);
+          orientationTimerRef.current = null;
+        }
       };
     }
   }, []);
@@ -252,10 +342,38 @@ export const App: React.FC = () => {
     screenRadius: Math.round((frameOptions.screenRadius * scale) / 100),
   };
 
-  const isPortrait = scaledOptions.orientation === "portrait";
-  const ratioMultiplier = scaledOptions.aspectRatio.height / scaledOptions.aspectRatio.width;
-  const screenWidth = Math.round(isPortrait ? scaledOptions.baseScreenWidth : scaledOptions.baseScreenWidth * ratioMultiplier);
-  const screenHeight = Math.round(isPortrait ? scaledOptions.baseScreenWidth * ratioMultiplier : scaledOptions.baseScreenWidth);
+  // Immersive mode drops the chassis and fits the display to the actual
+  // window, preserving the stream's aspect ratio in either orientation. The
+  // same PhoneFrame/VideoCanvas subtree is kept mounted across the transition.
+  const landscapeRatio = frameOptions.aspectRatio.height / frameOptions.aspectRatio.width;
+  const availableWidth = Math.max(160, viewport.width - FULLSCREEN_MARGIN * 2);
+  const availableHeight = Math.max(160, viewport.height - FULLSCREEN_MARGIN * 2);
+  const fullscreenBase = Math.max(
+    160,
+    Math.round(
+      frameOptions.orientation === "portrait"
+        ? Math.min(availableWidth, availableHeight / landscapeRatio)
+        : Math.min(availableWidth / landscapeRatio, availableHeight)
+    )
+  );
+
+  const activeOptions: PhoneFrameOptions = isFullscreen
+    ? {
+        ...frameOptions,
+        baseScreenWidth: fullscreenBase,
+        bezelWidth: 0,
+        outerRadius: 0,
+        screenRadius: 0,
+        notchStyle: "none",
+        showSpeaker: false,
+        showHardwareButtons: false,
+      }
+    : scaledOptions;
+
+  const isPortrait = activeOptions.orientation === "portrait";
+  const ratioMultiplier = activeOptions.aspectRatio.height / activeOptions.aspectRatio.width;
+  const screenWidth = Math.round(isPortrait ? activeOptions.baseScreenWidth : activeOptions.baseScreenWidth * ratioMultiplier);
+  const screenHeight = Math.round(isPortrait ? activeOptions.baseScreenWidth * ratioMultiplier : activeOptions.baseScreenWidth);
 
   // The window is a permanent fullscreen transparent overlay; the phone is
   // centered in it and the inspector overlays the right edge. Sizing once at
@@ -269,11 +387,12 @@ export const App: React.FC = () => {
   // While dragging, the window must keep receiving events so the drag survives the cursor leaving the frame.
   // While the inspector is open, it must stay clickable, so the window keeps capturing the mouse.
   // Screen gestures (swipe/scroll) also keep the window interactive even if the cursor leaves the frame.
+  // Fullscreen always catches the pointer: the whole display is the phone surface.
   useEffect(() => {
     window.electronAPI?.setIgnoreMouseEvents?.(
-      !(isHovered || isDragging || isScreenInteracting || showInspector || touchHudOpen)
+      !(isFullscreen || isHovered || isDragging || isScreenInteracting || showInspector || touchHudOpen)
     );
-  }, [isHovered, isDragging, isScreenInteracting, showInspector, touchHudOpen]);
+  }, [isFullscreen, isHovered, isDragging, isScreenInteracting, showInspector, touchHudOpen]);
 
   // Opening the settings page glides the phone back to the center of its page
   useEffect(() => {
@@ -307,6 +426,18 @@ export const App: React.FC = () => {
     };
   }, []);
 
+  // Rotation changes the frame's footprint; re-clamp a previously dragged
+  // offset against the new geometry so the phone never settles off-workspace.
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => {
+      setPhoneOffset((prev) => {
+        const next = clampOffset(prev.x, prev.y);
+        return next.x === prev.x && next.y === prev.y ? prev : next;
+      });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [screenWidth, screenHeight, isFullscreen]);
+
   // Window Always-on-top handler
   const handleTogglePin = async () => {
     const newFlag = !isPinned;
@@ -321,6 +452,16 @@ export const App: React.FC = () => {
       ...prev,
       orientation: prev.orientation === "portrait" ? "landscape" : "portrait",
     }));
+  };
+
+  const handleToggleFullscreen = () => {
+    if (!isFullscreen && !isStreaming) {
+      showSessionNotice("Start mirroring before entering fullscreen.");
+      return;
+    }
+    const next = !isFullscreen;
+    setIsFullscreen(next);
+    void window.electronAPI?.setFullscreen?.(next);
   };
 
   const handleMinimize = () => {
@@ -406,6 +547,9 @@ export const App: React.FC = () => {
   };
 
   const handleDragStart = (e: React.PointerEvent<HTMLDivElement>) => {
+    // The immersive surface is fixed to the display; moving the frame would
+    // only push the mirrored screen under the black backdrop.
+    if (isFullscreen) return;
     if (e.button !== 0) return;
     const target = e.target as HTMLElement;
     if (target.closest("button, input, select, textarea, a")) return;
@@ -506,7 +650,7 @@ export const App: React.FC = () => {
 
   // Same definition the chassis renders with, so the side key recolors with
   // the frame the moment a new frame color is picked.
-  const currentColorDef = FRAME_COLOR_DEFINITIONS[scaledOptions.color] ?? FRAME_COLOR_DEFINITIONS.slate;
+  const currentColorDef = FRAME_COLOR_DEFINITIONS[activeOptions.color] ?? FRAME_COLOR_DEFINITIONS.slate;
   const activeDevice = adbStatus.activeDevice;
   const isDeviceConnected = adbStatus.state === "device";
   const isStreaming = mirrorState === "running";
@@ -515,6 +659,8 @@ export const App: React.FC = () => {
   // so moving between them never flickers), drag, inspector, or touch toggle.
   // A manual collapse always wins and hands over to the hardware side key.
   const hudVisible = !isHudCollapsed && (isHovered || showInspector || isDragging || touchHudOpen);
+  // Immersive mode hides the desktop furniture behind a black backdrop.
+  const effectiveHudVisible = hudVisible && !isFullscreen;
   // The collapsed control is a volume-style side key that scales 1:1 with the
   // frame. Its hit area stops 2px short of the screen edge, so it can never
   // paint over — or steal pointer input from — the display at any scale.
@@ -537,7 +683,7 @@ export const App: React.FC = () => {
         alignItems: "center",
         width: "100vw",
         height: "100vh",
-        backgroundColor: "transparent",
+        backgroundColor: isFullscreen ? "#000000" : "transparent",
         color: "var(--text)",
         overflow: "hidden",
         position: "relative",
@@ -554,7 +700,7 @@ export const App: React.FC = () => {
           alignItems: "center",
           justifyContent: "center",
           position: "relative",
-          padding: "24px",
+          padding: isFullscreen ? 0 : "24px",
         }}
       >
         {/* Phone + HUD wrapper (shrink-fits the frame so the HUD can anchor to it) */}
@@ -563,9 +709,11 @@ export const App: React.FC = () => {
           style={{
             position: "relative",
             display: "flex",
-            transform: `translate(${phoneOffset.x}px, ${phoneOffset.y}px)`,
+            transform: isFullscreen
+              ? "translate(0, 0)"
+              : `translate(${phoneOffset.x}px, ${phoneOffset.y}px)`,
             // Smooth glide when recentering for the panel; 1:1 tracking while dragging
-            transition: isDragging
+            transition: isFullscreen || isDragging
               ? "none"
               : "transform 320ms cubic-bezier(0.16, 1, 0.3, 1)",
           }}
@@ -587,12 +735,12 @@ export const App: React.FC = () => {
               left: "calc(100% + 10px)",
               right: "auto",
               zIndex: 100,
-              opacity: hudVisible ? 1 : 0,
-              pointerEvents: hudVisible ? "auto" : "none",
-              transform: hudVisible
+              opacity: effectiveHudVisible ? 1 : 0,
+              pointerEvents: effectiveHudVisible ? "auto" : "none",
+              transform: effectiveHudVisible
                 ? "translateY(-50%) translateX(0)"
                 : "translateY(-50%) translateX(-14px)",
-              transition: hudVisible
+              transition: effectiveHudVisible
                 ? "transform 400ms cubic-bezier(0.22, 1, 0.36, 1), opacity 260ms cubic-bezier(0.22, 1, 0.36, 1)"
                 : "transform 300ms cubic-bezier(0.22, 1, 0.36, 1), opacity 220ms cubic-bezier(0.22, 1, 0.36, 1)",
             }}
@@ -606,6 +754,9 @@ export const App: React.FC = () => {
               isPinned={isPinned}
               onTogglePin={handleTogglePin}
               onRotate={handleRotate}
+              isFullscreen={isFullscreen}
+              fullscreenAvailable={isStreaming}
+              onToggleFullscreen={handleToggleFullscreen}
               audioMuted={audioMuted}
               onToggleAudio={() => setAudioMuted((muted) => !muted)}
               audioVolume={audioVolume}
@@ -640,9 +791,9 @@ export const App: React.FC = () => {
               background: "transparent",
               border: "none",
               outlineOffset: "1px",
-              opacity: isHudCollapsed ? 1 : 0,
-              pointerEvents: isHudCollapsed ? "auto" : "none",
-              transform: `translateY(-50%) translateX(${isHudCollapsed ? 0 : -10}px)`,
+              opacity: isHudCollapsed && !isFullscreen ? 1 : 0,
+              pointerEvents: isHudCollapsed && !isFullscreen ? "auto" : "none",
+              transform: `translateY(-50%) translateX(${isHudCollapsed && !isFullscreen ? 0 : -10}px)`,
               transition:
                 "transform 320ms cubic-bezier(0.22, 1, 0.36, 1), opacity 320ms cubic-bezier(0.22, 1, 0.36, 1), filter 120ms ease",
             }}
@@ -674,9 +825,17 @@ export const App: React.FC = () => {
 
           {/* Procedural SVG Phone Frame Engine */}
           <PhoneFrame
-            options={scaledOptions}
-            dragMode={dragMode}
-            cursor={dragMode ? (isDragging ? "grabbing" : "grab") : undefined}
+            options={activeOptions}
+            dragMode={dragMode || isFullscreen}
+            cursor={
+              isFullscreen
+                ? "default"
+                : dragMode
+                ? isDragging
+                  ? "grabbing"
+                  : "grab"
+                : undefined
+            }
           >
           {/* Inner Phone Screen Content */}
           <div
@@ -729,10 +888,11 @@ export const App: React.FC = () => {
                   width={screenWidth}
                   height={screenHeight}
                   isStreaming={isStreaming}
-                  dragMode={dragMode}
-                  isDragging={isDragging}
+                  dragMode={dragMode && !isFullscreen}
+                  isDragging={isDragging && !isFullscreen}
                   showDpad={dpadEnabled}
                   onInteractionChange={setIsScreenInteracting}
+                  onStreamSizeChange={scheduleStreamOrientation}
                 />
               ) : (
                 /* Standby / Ready View */
@@ -850,9 +1010,19 @@ export const App: React.FC = () => {
         </div>
       </div>
 
+      {/* Immersive-mode controls: the only desktop chrome left on the display */}
+      {isFullscreen && (
+        <FullscreenControls
+          onExit={handleToggleFullscreen}
+          onRotate={handleRotate}
+          dpadEnabled={dpadEnabled}
+          onToggleDpad={() => setDpadEnabled((enabled) => !enabled)}
+        />
+      )}
+
       {/* Settings page (right region): permanently reserved strip, fixed to the
           screen's right edge; phone drag can never reach or move it */}
-      {showInspector && (
+      {showInspector && !isFullscreen && (
         <aside
           className="app-no-drag"
           style={{

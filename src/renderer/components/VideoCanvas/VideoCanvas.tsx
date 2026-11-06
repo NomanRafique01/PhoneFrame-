@@ -14,6 +14,9 @@ export interface VideoCanvasProps {
   // Dedicated scroll-pad overlay; its visibility is owned by the HUD.
   showDpad?: boolean;
   onInteractionChange?: (active: boolean) => void;
+  // Reports the decoded frame size. scrcpy 3.1 does not re-send stream
+  // metadata on rotation, so the frame dimensions are the orientation source.
+  onStreamSizeChange?: (width: number, height: number) => void;
 }
 
 interface FramePoint {
@@ -80,6 +83,7 @@ export const VideoCanvas: React.FC<VideoCanvasProps> = ({
   isDragging = false,
   showDpad = false,
   onInteractionChange,
+  onStreamSizeChange,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const decoderRef = useRef<VideoDecoder | null>(null);
@@ -87,6 +91,9 @@ export const VideoCanvas: React.FC<VideoCanvasProps> = ({
   const currentCodecRef = useRef<string>("avc1.420020");
   const lastTimestampRef = useRef<number>(0);
   const hasReceivedFramesRef = useRef<boolean>(false);
+  const lastStreamSizeRef = useRef<{ width: number; height: number }>({ width: 0, height: 0 });
+  const onStreamSizeChangeRef = useRef(onStreamSizeChange);
+  onStreamSizeChangeRef.current = onStreamSizeChange;
 
   const [hasReceivedFrames, setHasReceivedFrames] = useState<boolean>(false);
 
@@ -131,6 +138,15 @@ export const VideoCanvas: React.FC<VideoCanvasProps> = ({
 
           ctx.drawImage(frame, 0, 0, w, h);
           frame.close();
+
+          if (
+            w > 0 &&
+            h > 0 &&
+            (lastStreamSizeRef.current.width !== w || lastStreamSizeRef.current.height !== h)
+          ) {
+            lastStreamSizeRef.current = { width: w, height: h };
+            onStreamSizeChangeRef.current?.(w, h);
+          }
 
           if (!hasReceivedFramesRef.current) {
             hasReceivedFramesRef.current = true;

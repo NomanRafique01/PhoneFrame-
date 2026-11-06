@@ -353,3 +353,21 @@ button:focus-visible {
     transition: none;
   }
 }
+
+/* Immersive fullscreen panel: dim so the stream owns the display, but never
+   hide the exit affordance entirely. */
+.fullscreen-controls {
+  opacity: 0.38;
+  transition: opacity 180ms ease;
+}
+
+.fullscreen-controls:hover,
+.fullscreen-controls:focus-within {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fullscreen-controls {
+    transition: none;
+  }
+}

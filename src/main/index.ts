@@ -12,6 +12,11 @@ let mirrorManager: ScrcpyServerManager | null = null;
 let pinned = true;
 const PIN_LEVEL = "screen-saver";
 
+// Windowed geometry captured as fullscreen begins, so leaving fullscreen
+// restores exactly the overlay the user had (native restore can differ when
+// the taskbar reveal area is reserved).
+let fullscreenRestoreBounds: Electron.Rectangle | null = null;
+
 function applyPin(): void {
   if (!mainWindow) return;
   mainWindow.setAlwaysOnTop(pinned, PIN_LEVEL);
@@ -47,6 +52,7 @@ function createWindow(): void {
     backgroundColor: "#00000000",
     hasShadow: false,
     resizable: true,
+    fullscreenable: true,
     webPreferences: {
       preload: path.join(__dirname, "../preload/index.js"),
       contextIsolation: true,
@@ -71,7 +77,26 @@ function createWindow(): void {
   mainWindow.on("blur", applyPin);
   mainWindow.on("restore", applyPin);
 
+  // Theme/OS-initiated fullscreen still has to reach the renderer, so the
+  // workspace, HUD, and click-through state always match the real window.
+  mainWindow.on("enter-full-screen", () => {
+    if (mainWindow?.webContents && !mainWindow.webContents.isDestroyed()) {
+      mainWindow.webContents.send("window:fullscreen-changed", true);
+    }
+  });
+
+  mainWindow.on("leave-full-screen", () => {
+    if (!mainWindow) return;
+    mainWindow.setBounds(fullscreenRestoreBounds ?? computeWindowBounds());
+    fullscreenRestoreBounds = null;
+    applyPin();
+    if (mainWindow.webContents && !mainWindow.webContents.isDestroyed()) {
+      mainWindow.webContents.send("window:fullscreen-changed", false);
+    }
+  });
+
   mainWindow.on("closed", () => {
+    fullscreenRestoreBounds = null;
     mainWindow = null;
   });
 }
@@ -191,6 +216,26 @@ ipcMain.handle("window:setWindowSize", (_event, _width: number, _height: number)
 
 ipcMain.handle("window:setIgnoreMouseEvents", (_event, flag: boolean) => {
   mainWindow?.setIgnoreMouseEvents(flag, { forward: true });
+});
+
+// Native display fullscreen (covers the taskbar without manual bounds math).
+// The renderer paints an opaque backdrop, so the transparent window reads as a
+// solid immersive surface; the stream itself never restarts.
+ipcMain.handle("window:setFullscreen", (_event, flag: boolean) => {
+  if (!mainWindow) return false;
+  if (flag) {
+    if (!mainWindow.isFullScreen()) {
+      fullscreenRestoreBounds = mainWindow.getBounds();
+      mainWindow.setFullScreen(true);
+    }
+  } else if (mainWindow.isFullScreen()) {
+    mainWindow.setFullScreen(false);
+  }
+  return mainWindow.isFullScreen();
+});
+
+ipcMain.handle("window:getFullscreen", () => {
+  return mainWindow?.isFullScreen() ?? false;
 });
 
 // ADB IPC handlers

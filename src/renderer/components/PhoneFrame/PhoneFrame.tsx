@@ -196,6 +196,9 @@ export const PhoneFrame: React.FC<PhoneFrameProps> = ({ options, children, dragM
           backgroundColor: "#000000",
           display: "flex",
           flexDirection: "column",
+          // Mirrors the chassis timing so rotation/fullscreen resizes never
+          // leave the display detached from the frame mid-transition.
+          transition: "width 240ms cubic-bezier(0.16, 1, 0.3, 1), height 240ms cubic-bezier(0.16, 1, 0.3, 1)",
         }}
       >
         {/* Notch / Punch-hole Overlay */}

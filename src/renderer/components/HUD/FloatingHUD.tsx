@@ -2,6 +2,8 @@ import React, { useRef } from "react";
 import {
   ChevronLeftIcon,
   DPadIcon,
+  ExitFullscreenIcon,
+  FullscreenIcon,
   HandIcon,
   PinIcon,
   RotateIcon,
@@ -21,6 +23,9 @@ interface FloatingHUDProps {
   isPinned: boolean;
   onTogglePin: () => void;
   onRotate: () => void;
+  isFullscreen: boolean;
+  fullscreenAvailable: boolean;
+  onToggleFullscreen: () => void;
   audioMuted: boolean;
   onToggleAudio: () => void;
   audioVolume: number;
@@ -171,6 +176,9 @@ export const FloatingHUD: React.FC<FloatingHUDProps> = ({
   isPinned,
   onTogglePin,
   onRotate,
+  isFullscreen,
+  fullscreenAvailable,
+  onToggleFullscreen,
   audioMuted,
   onToggleAudio,
   audioVolume,
@@ -277,6 +285,33 @@ export const FloatingHUD: React.FC<FloatingHUDProps> = ({
         }}
       >
         <RotateIcon size={16} />
+      </button>
+
+      {/* Immersive Fullscreen */}
+      <button
+        onClick={onToggleFullscreen}
+        disabled={!isFullscreen && !fullscreenAvailable}
+        title={
+          isFullscreen
+            ? "Exit fullscreen (Esc)"
+            : fullscreenAvailable
+            ? "Enter immersive fullscreen"
+            : "Start mirroring to use fullscreen"
+        }
+        aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+        aria-pressed={isFullscreen}
+        style={{
+          width: "36px",
+          height: "36px",
+          borderRadius: "var(--radius-sm)",
+          backgroundColor: isFullscreen ? "var(--ink-800)" : "transparent",
+          color: isFullscreen ? "var(--mist-200)" : "var(--mist-400)",
+          border: isFullscreen ? "1px solid var(--border)" : "1px solid transparent",
+          opacity: isFullscreen || fullscreenAvailable ? 1 : 0.45,
+          cursor: isFullscreen || fullscreenAvailable ? "pointer" : "not-allowed",
+        }}
+      >
+        {isFullscreen ? <ExitFullscreenIcon size={16} /> : <FullscreenIcon size={16} />}
       </button>
 
       {/* Phone audio routed to the PC — hover reveals the level rail */}

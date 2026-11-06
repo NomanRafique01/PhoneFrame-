@@ -54,6 +54,9 @@ export interface FloatingPhoneAPI {
   close: () => Promise<void>;
   setWindowSize: (width: number, height: number) => Promise<void>;
   setIgnoreMouseEvents: (flag: boolean) => Promise<void>;
+  setFullscreen: (flag: boolean) => Promise<boolean>;
+  getFullscreen: () => Promise<boolean>;
+  onFullscreenChange: (callback: (isFullscreen: boolean) => void) => () => void;
 
   // ADB device tracking
   getAdbStatus: () => Promise<AdbStatusPayload>;
@@ -83,6 +86,15 @@ const api: FloatingPhoneAPI = {
   close: () => ipcRenderer.invoke("window:close"),
   setWindowSize: (width: number, height: number) => ipcRenderer.invoke("window:setWindowSize", width, height),
   setIgnoreMouseEvents: (flag: boolean) => ipcRenderer.invoke("window:setIgnoreMouseEvents", flag),
+  setFullscreen: (flag: boolean) => ipcRenderer.invoke("window:setFullscreen", flag),
+  getFullscreen: () => ipcRenderer.invoke("window:getFullscreen"),
+  onFullscreenChange: (callback: (isFullscreen: boolean) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, isFullscreen: boolean) => callback(isFullscreen);
+    ipcRenderer.on("window:fullscreen-changed", handler);
+    return () => {
+      ipcRenderer.removeListener("window:fullscreen-changed", handler);
+    };
+  },
 
   getAdbStatus: () => ipcRenderer.invoke("adb:getStatus"),
   onAdbStatusChange: (callback: (status: AdbStatusPayload) => void) => {
