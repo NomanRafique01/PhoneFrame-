@@ -51,8 +51,10 @@ export const App: React.FC = () => {
   const [isWizardActive, setIsWizardActive] = useState(true);
   const [isHovered, setIsHovered] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
+  const [touchHudOpen, setTouchHudOpen] = useState(false);
   const [phoneOffset, setPhoneOffset] = useState({ x: 0, y: 0 });
   const hideTimerRef = useRef<number | null>(null);
+  const tapRef = useRef<{ pointerId: number; x: number; y: number; t: number } | null>(null);
   const dragRef = useRef<{ pointerId: number; lastX: number; lastY: number } | null>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const phoneWrapRef = useRef<HTMLDivElement>(null);
@@ -163,8 +165,8 @@ export const App: React.FC = () => {
   // While dragging, the window must keep receiving events so the drag survives the cursor leaving the frame.
   // While the inspector is open, it must stay clickable, so the window keeps capturing the mouse.
   useEffect(() => {
-    window.electronAPI?.setIgnoreMouseEvents?.(!(isHovered || isDragging || showInspector));
-  }, [isHovered, isDragging, showInspector]);
+    window.electronAPI?.setIgnoreMouseEvents?.(!(isHovered || isDragging || showInspector || touchHudOpen));
+  }, [isHovered, isDragging, showInspector, touchHudOpen]);
 
   // Opening the settings page glides the phone back to the center of its page
   useEffect(() => {
@@ -243,6 +245,9 @@ export const App: React.FC = () => {
     if (e.button !== 0) return;
     const target = e.target as HTMLElement;
     if (target.closest("button, input, select, textarea, a")) return;
+    if (e.pointerType === "touch") {
+      tapRef.current = { pointerId: e.pointerId, x: e.clientX, y: e.clientY, t: Date.now() };
+    }
     dragRef.current = { pointerId: e.pointerId, lastX: e.clientX, lastY: e.clientY };
     e.currentTarget.setPointerCapture(e.pointerId);
     setIsDragging(true);
@@ -266,12 +271,24 @@ export const App: React.FC = () => {
       e.currentTarget.releasePointerCapture(e.pointerId);
     }
     setIsDragging(false);
+    // Touch has no hover: a quick, barely-moving tap toggles the HUD drawer
+    const tap = tapRef.current;
+    tapRef.current = null;
+    if (tap && tap.pointerId === e.pointerId) {
+      const dist = Math.hypot(e.clientX - tap.x, e.clientY - tap.y);
+      if (dist < 8 && Date.now() - tap.t < 300) {
+        setTouchHudOpen((v) => !v);
+      }
+    }
   };
 
   const currentColorDef = FRAME_COLOR_DEFINITIONS[frameOptions.color];
   const activeDevice = adbStatus.activeDevice;
   const isDeviceConnected = adbStatus.state === "device";
   const isStreaming = mirrorState === "running";
+  // Shared visibility for the drawer: phone hover (phone + HUD are one wrapper,
+  // so moving between them never flickers), drag, inspector, or touch toggle
+  const hudVisible = isHovered || showInspector || isDragging || touchHudOpen;
 
   return (
     <div
@@ -320,20 +337,23 @@ export const App: React.FC = () => {
           onPointerUp={handleDragEnd}
           onPointerCancel={handleDragEnd}
         >
-          {/* Floating Contextual HUD (Hover revealed or always visible when inspector open) */}
+          {/* Floating Contextual HUD — slides out from behind the right bezel like a drawer */}
           <div
+            className="hud-drawer"
             style={{
               position: "absolute",
               top: "50%",
               left: "calc(100% + 10px)",
               right: "auto",
               zIndex: 100,
-              opacity: isHovered || showInspector || isDragging ? 1 : 0,
-              pointerEvents: isHovered || showInspector || isDragging ? "auto" : "none",
-              transform: isHovered || showInspector || isDragging
+              opacity: hudVisible ? 1 : 0,
+              pointerEvents: hudVisible ? "auto" : "none",
+              transform: hudVisible
                 ? "translateY(-50%) translateX(0)"
-                : "translateY(-50%) translateX(6px)",
-              transition: "opacity 160ms cubic-bezier(0.16, 1, 0.3, 1), transform 160ms cubic-bezier(0.16, 1, 0.3, 1)",
+                : "translateY(-50%) translateX(-14px)",
+              transition: hudVisible
+                ? "transform 400ms cubic-bezier(0.22, 1, 0.36, 1), opacity 260ms cubic-bezier(0.22, 1, 0.36, 1)"
+                : "transform 300ms cubic-bezier(0.22, 1, 0.36, 1), opacity 220ms cubic-bezier(0.22, 1, 0.36, 1)",
             }}
           >
             <FloatingHUD

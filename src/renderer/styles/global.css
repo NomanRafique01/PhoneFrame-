@@ -97,3 +97,11 @@ button:focus-visible {
 ::-webkit-scrollbar-thumb:hover {
   background: var(--ink-600);
 }
+
+/* Respect reduced-motion: drawer appears/disappears without travel */
+@media (prefers-reduced-motion: reduce) {
+  .hud-drawer {
+    transition: opacity 120ms linear !important;
+    transform: translateY(-50%) !important;
+  }
+}
