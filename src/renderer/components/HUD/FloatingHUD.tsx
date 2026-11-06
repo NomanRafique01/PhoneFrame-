@@ -25,6 +25,7 @@ interface FloatingHUDProps {
   onRotate: () => void;
   isFullscreen: boolean;
   fullscreenAvailable: boolean;
+  fullscreenBlockedReason: "portrait" | "disconnected" | null;
   onToggleFullscreen: () => void;
   audioMuted: boolean;
   onToggleAudio: () => void;
@@ -178,6 +179,7 @@ export const FloatingHUD: React.FC<FloatingHUDProps> = ({
   onRotate,
   isFullscreen,
   fullscreenAvailable,
+  fullscreenBlockedReason,
   onToggleFullscreen,
   audioMuted,
   onToggleAudio,
@@ -294,6 +296,8 @@ export const FloatingHUD: React.FC<FloatingHUDProps> = ({
         title={
           isFullscreen
             ? "Exit fullscreen (Esc)"
+            : fullscreenBlockedReason === "portrait"
+            ? "Rotate to landscape to use fullscreen"
             : fullscreenAvailable
             ? "Enter immersive fullscreen"
             : "Start mirroring to use fullscreen"
@@ -377,6 +381,8 @@ export const FloatingHUD: React.FC<FloatingHUDProps> = ({
       {/* Inspector / Frame Customizer Drawer */}
       <button
         onClick={onToggleInspector}
+        // Lets the global dismiss-on-click handler leave this toggle alone.
+        data-inspector-toggle="true"
         title={showInspector ? "Close Frame Inspector" : "Open Frame Inspector"}
         style={{
           width: "36px",

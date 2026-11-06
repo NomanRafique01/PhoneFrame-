@@ -127,6 +127,7 @@ export const App: React.FC = () => {
   const stageRef = useRef<HTMLDivElement>(null);
   const phoneWrapRef = useRef<HTMLDivElement>(null);
   const hudDrawerRef = useRef<HTMLDivElement>(null);
+  const inspectorRef = useRef<HTMLElement | null>(null);
 
   const showSessionNotice = (text: string) => {
     setSessionNotice(text);
@@ -225,6 +226,18 @@ export const App: React.FC = () => {
   useEffect(() => {
     isFullscreenRef.current = isFullscreen;
   }, [isFullscreen]);
+
+  const isLandscape = frameOptions.orientation === "landscape";
+
+  // Fullscreen is landscape-only. Portrait would fit the stream into a thin
+  // strip between letterbox bars, so a device rotated back to portrait —
+  // including via the rotate control inside fullscreen — leaves immersive
+  // mode instead of staying in a crippled view.
+  useEffect(() => {
+    if (!isFullscreen || isLandscape) return;
+    setIsFullscreen(false);
+    void window.electronAPI?.setFullscreen?.(false);
+  }, [isFullscreen, isLandscape]);
 
   // Escape leaves immersive mode before it can reach the phone as BACK.
   useEffect(() => {
@@ -399,6 +412,23 @@ export const App: React.FC = () => {
     if (showInspector) setPhoneOffset({ x: 0, y: 0 });
   }, [showInspector]);
 
+  // Any click dismisses the settings panel, except clicks inside it and on its
+  // HUD toggle (which owns the toggle and would otherwise reopen it).
+  useEffect(() => {
+    if (!showInspector) return;
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      if (inspectorRef.current?.contains(target)) return;
+      if (target.closest('[data-inspector-toggle="true"]')) return;
+      setShowInspector(false);
+    };
+
+    window.addEventListener("pointerdown", handlePointerDown, true);
+    return () => window.removeEventListener("pointerdown", handlePointerDown, true);
+  }, [showInspector]);
+
   // The collapsed side key mirrors the HUD's top collapse button, so it must
   // follow the HUD's actual height as controls are added or removed.
   useEffect(() => {
@@ -455,13 +485,21 @@ export const App: React.FC = () => {
   };
 
   const handleToggleFullscreen = () => {
-    if (!isFullscreen && !isStreaming) {
+    if (isFullscreen) {
+      setIsFullscreen(false);
+      void window.electronAPI?.setFullscreen?.(false);
+      return;
+    }
+    if (!isStreaming) {
       showSessionNotice("Start mirroring before entering fullscreen.");
       return;
     }
-    const next = !isFullscreen;
-    setIsFullscreen(next);
-    void window.electronAPI?.setFullscreen?.(next);
+    if (!isLandscape) {
+      showSessionNotice("Rotate to landscape to use fullscreen.");
+      return;
+    }
+    setIsFullscreen(true);
+    void window.electronAPI?.setFullscreen?.(true);
   };
 
   const handleMinimize = () => {
@@ -755,7 +793,8 @@ export const App: React.FC = () => {
               onTogglePin={handleTogglePin}
               onRotate={handleRotate}
               isFullscreen={isFullscreen}
-              fullscreenAvailable={isStreaming}
+              fullscreenAvailable={isStreaming && isLandscape}
+              fullscreenBlockedReason={!isStreaming ? "disconnected" : isLandscape ? null : "portrait"}
               onToggleFullscreen={handleToggleFullscreen}
               audioMuted={audioMuted}
               onToggleAudio={() => setAudioMuted((muted) => !muted)}
@@ -1025,6 +1064,7 @@ export const App: React.FC = () => {
       {showInspector && !isFullscreen && (
         <aside
           className="app-no-drag"
+          ref={inspectorRef}
           style={{
             position: "absolute",
             top: "12px",
