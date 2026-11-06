@@ -426,42 +426,86 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({ adbStatus, notice, onC
         </button>
       </div>
 
-      {/* Brief session notice (absolute so showing/hiding never shifts layout) */}
+      {/* In-screen heads-up notice: drops from the top like a real phone banner */}
       {notice && (
         <div
-          className="mono-data"
+          className="phone-notice"
           style={{
             position: "absolute",
-            left: "var(--space-4)",
-            right: "var(--space-4)",
-            bottom: "104px",
-            zIndex: 10,
+            top: "var(--space-2)",
+            left: "var(--space-3)",
+            right: "var(--space-3)",
+            zIndex: 20,
             display: "flex",
             alignItems: "center",
-            justifyContent: "center",
-            gap: "8px",
-            padding: "8px 10px",
-            borderRadius: "var(--radius-sm)",
-            border: "1px solid var(--border)",
-            backgroundColor: "rgba(6, 20, 27, 0.92)",
-            backdropFilter: "blur(6px)",
-            fontSize: "10px",
-            lineHeight: 1.4,
-            color: "var(--mist-400)",
-            textAlign: "center",
+            gap: "10px",
+            padding: "8px 12px",
+            borderRadius: "var(--radius-md)",
+            border: "1px solid rgba(255, 255, 255, 0.08)",
+            backgroundColor: "rgba(17, 33, 45, 0.96)",
+            backdropFilter: "blur(10px)",
+            boxShadow: "0 10px 28px -8px rgba(0, 0, 0, 0.7)",
             pointerEvents: "none",
           }}
         >
           <span
             style={{
-              width: "5px",
-              height: "5px",
+              width: "26px",
+              height: "26px",
               borderRadius: "50%",
-              backgroundColor: "var(--warning)",
+              backgroundColor: "rgba(224, 176, 74, 0.14)",
+              color: "var(--warning)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
               flexShrink: 0,
             }}
-          />
-          {notice}
+          >
+            <UsbIcon size={14} />
+          </span>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ display: "flex", alignItems: "baseline", gap: "6px" }}>
+              <span
+                style={{
+                  fontSize: "11px",
+                  fontWeight: 600,
+                  color: "var(--mist-200)",
+                  whiteSpace: "nowrap",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                }}
+              >
+                {notice.split(". ")[0]}
+              </span>
+              <span
+                className="mono-data"
+                style={{
+                  marginLeft: "auto",
+                  fontSize: "9px",
+                  color: "var(--mist-400)",
+                  opacity: 0.6,
+                  flexShrink: 0,
+                }}
+              >
+                now
+              </span>
+            </div>
+            {notice.includes(". ") && (
+              <div
+                style={{
+                  fontSize: "10px",
+                  color: "var(--mist-400)",
+                  lineHeight: 1.35,
+                  marginTop: "1px",
+                  whiteSpace: "nowrap",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                }}
+              >
+                {notice.slice(notice.indexOf(". ") + 2)}
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>
