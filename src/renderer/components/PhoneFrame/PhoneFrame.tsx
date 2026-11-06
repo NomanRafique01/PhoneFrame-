@@ -7,9 +7,13 @@ import {
 interface PhoneFrameProps {
   options: PhoneFrameOptions;
   children?: React.ReactNode;
+  // While drag mode is armed the bezel must deliver pointer events to the
+  // renderer instead of acting as a native window drag region.
+  dragMode?: boolean;
+  cursor?: string;
 }
 
-export const PhoneFrame: React.FC<PhoneFrameProps> = ({ options, children }) => {
+export const PhoneFrame: React.FC<PhoneFrameProps> = ({ options, children, dragMode, cursor }) => {
   const {
     bezelWidth,
     outerRadius,
@@ -59,7 +63,7 @@ export const PhoneFrame: React.FC<PhoneFrameProps> = ({ options, children }) => 
     >
       {/* Procedural SVG Hardware Frame (Bezel & Chassis) */}
       <svg
-        className="app-drag-region"
+        className={dragMode ? undefined : "app-drag-region"}
         viewBox={`0 0 ${totalWidth} ${totalHeight}`}
         width={totalWidth}
         height={totalHeight}
@@ -68,7 +72,7 @@ export const PhoneFrame: React.FC<PhoneFrameProps> = ({ options, children }) => 
           top: 0,
           left: 0,
           pointerEvents: "auto",
-          cursor: "grab",
+          cursor: cursor ?? "grab",
         }}
         aria-hidden="true"
       >

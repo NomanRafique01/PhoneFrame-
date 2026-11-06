@@ -11,6 +11,12 @@ import { VideoCanvas } from "./components/VideoCanvas/VideoCanvas";
 import { SmartphoneIcon } from "./components/icons";
 import type { AdbStatusPayload, MirrorState } from "./types/electron";
 
+// Drag mode requires a deliberate hold so a quick tap or a small wobble never
+// moves the frame. 180 ms is short enough to feel immediate, long enough to
+// distinguish intent from a click.
+const DRAG_HOLD_MS = 180;
+const DRAG_MOVE_TOLERANCE = 6;
+
 export const App: React.FC = () => {
   const [frameOptions, setFrameOptions] = useState<PhoneFrameOptions>({
     bezelWidth: 16,
@@ -58,12 +64,21 @@ export const App: React.FC = () => {
   const [isWizardActive, setIsWizardActive] = useState(true);
   const [isHovered, setIsHovered] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
+  const [dragMode, setDragMode] = useState(false);
   const [isScreenInteracting, setIsScreenInteracting] = useState(false);
   const [touchHudOpen, setTouchHudOpen] = useState(false);
   const [phoneOffset, setPhoneOffset] = useState({ x: 0, y: 0 });
   const hideTimerRef = useRef<number | null>(null);
   const tapRef = useRef<{ pointerId: number; x: number; y: number; t: number } | null>(null);
   const dragRef = useRef<{ pointerId: number; lastX: number; lastY: number } | null>(null);
+  const dragHoldTimerRef = useRef<number | null>(null);
+  const dragPendingRef = useRef<{
+    pointerId: number;
+    startX: number;
+    startY: number;
+    lastX: number;
+    lastY: number;
+  } | null>(null);
   const startInFlightRef = useRef(false);
   const stageRef = useRef<HTMLDivElement>(null);
   const phoneWrapRef = useRef<HTMLDivElement>(null);
@@ -208,6 +223,16 @@ export const App: React.FC = () => {
     if (showInspector) setPhoneOffset({ x: 0, y: 0 });
   }, [showInspector]);
 
+  // A pending long-press must never outlive the component.
+  useEffect(() => {
+    return () => {
+      if (dragHoldTimerRef.current !== null) {
+        window.clearTimeout(dragHoldTimerRef.current);
+        dragHoldTimerRef.current = null;
+      }
+    };
+  }, []);
+
   // Window Always-on-top handler
   const handleTogglePin = async () => {
     const newFlag = !isPinned;
@@ -289,10 +314,55 @@ export const App: React.FC = () => {
     };
   };
 
+  const clearDragHold = () => {
+    if (dragHoldTimerRef.current !== null) {
+      window.clearTimeout(dragHoldTimerRef.current);
+      dragHoldTimerRef.current = null;
+    }
+    dragPendingRef.current = null;
+  };
+
+  const handleToggleDragMode = () => {
+    if (dragMode) {
+      clearDragHold();
+      dragRef.current = null;
+      setIsDragging(false);
+    }
+    setDragMode(!dragMode);
+  };
+
   const handleDragStart = (e: React.PointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
     const target = e.target as HTMLElement;
     if (target.closest("button, input, select, textarea, a")) return;
+
+    if (dragMode) {
+      if (dragPendingRef.current || dragRef.current) return;
+      // Arm the drag only after a deliberate press-and-hold. Until the timer
+      // fires this is a pending gesture, never a phone movement or a tap that
+      // reaches the mirrored device.
+      e.preventDefault();
+      const pointerId = e.pointerId;
+      dragPendingRef.current = {
+        pointerId,
+        startX: e.clientX,
+        startY: e.clientY,
+        lastX: e.clientX,
+        lastY: e.clientY,
+      };
+      e.currentTarget.setPointerCapture(pointerId);
+      dragHoldTimerRef.current = window.setTimeout(() => {
+        dragHoldTimerRef.current = null;
+        const pending = dragPendingRef.current;
+        if (!pending || pending.pointerId !== pointerId) return;
+        dragPendingRef.current = null;
+        // Start from the pointer's current position so the frame does not jump.
+        dragRef.current = { pointerId, lastX: pending.lastX, lastY: pending.lastY };
+        setIsDragging(true);
+      }, DRAG_HOLD_MS);
+      return;
+    }
+
     if (e.pointerType === "touch") {
       tapRef.current = { pointerId: e.pointerId, x: e.clientX, y: e.clientY, t: Date.now() };
     }
@@ -302,6 +372,21 @@ export const App: React.FC = () => {
   };
 
   const handleDragMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const pending = dragPendingRef.current;
+    if (pending && pending.pointerId === e.pointerId) {
+      // Moving before the hold completes means this was not a drag gesture.
+      if (Math.hypot(e.clientX - pending.startX, e.clientY - pending.startY) > DRAG_MOVE_TOLERANCE) {
+        clearDragHold();
+        if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+          e.currentTarget.releasePointerCapture(e.pointerId);
+        }
+        return;
+      }
+      pending.lastX = e.clientX;
+      pending.lastY = e.clientY;
+      return;
+    }
+
     const drag = dragRef.current;
     if (!drag || drag.pointerId !== e.pointerId) return;
     const dx = e.clientX - drag.lastX;
@@ -313,6 +398,13 @@ export const App: React.FC = () => {
   };
 
   const handleDragEnd = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (dragPendingRef.current?.pointerId === e.pointerId) {
+      clearDragHold();
+      if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+        e.currentTarget.releasePointerCapture(e.pointerId);
+      }
+      return;
+    }
     if (!dragRef.current || dragRef.current.pointerId !== e.pointerId) return;
     dragRef.current = null;
     if (e.currentTarget.hasPointerCapture(e.pointerId)) {
@@ -327,6 +419,14 @@ export const App: React.FC = () => {
       if (dist < 8 && Date.now() - tap.t < 300) {
         setTouchHudOpen((v) => !v);
       }
+    }
+  };
+
+  const handleLostPointerCapture = (e: React.PointerEvent<HTMLDivElement>) => {
+    clearDragHold();
+    if (dragRef.current?.pointerId === e.pointerId) {
+      dragRef.current = null;
+      setIsDragging(false);
     }
   };
 
@@ -385,6 +485,7 @@ export const App: React.FC = () => {
           onPointerMove={handleDragMove}
           onPointerUp={handleDragEnd}
           onPointerCancel={handleDragEnd}
+          onLostPointerCapture={handleLostPointerCapture}
         >
           {/* Floating Contextual HUD — slides out from behind the right bezel like a drawer */}
           <div
@@ -406,6 +507,8 @@ export const App: React.FC = () => {
             }}
           >
             <FloatingHUD
+              dragMode={dragMode}
+              onToggleDragMode={handleToggleDragMode}
               isPinned={isPinned}
               onTogglePin={handleTogglePin}
               onRotate={handleRotate}
@@ -417,7 +520,11 @@ export const App: React.FC = () => {
           </div>
 
           {/* Procedural SVG Phone Frame Engine */}
-          <PhoneFrame options={scaledOptions}>
+          <PhoneFrame
+            options={scaledOptions}
+            dragMode={dragMode}
+            cursor={dragMode ? (isDragging ? "grabbing" : "grab") : undefined}
+          >
           {/* Inner Phone Screen Content */}
           <div
             style={{
@@ -469,6 +576,8 @@ export const App: React.FC = () => {
                   width={screenWidth}
                   height={screenHeight}
                   isStreaming={isStreaming}
+                  dragMode={dragMode}
+                  isDragging={isDragging}
                   onInteractionChange={setIsScreenInteracting}
                 />
               ) : (

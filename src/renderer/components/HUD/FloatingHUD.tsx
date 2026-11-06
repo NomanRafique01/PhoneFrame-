@@ -1,5 +1,6 @@
 import React from "react";
 import {
+  HandIcon,
   PinIcon,
   RotateIcon,
   SettingsIcon,
@@ -8,6 +9,8 @@ import {
 } from "../icons";
 
 interface FloatingHUDProps {
+  dragMode: boolean;
+  onToggleDragMode: () => void;
   isPinned: boolean;
   onTogglePin: () => void;
   onRotate: () => void;
@@ -18,6 +21,8 @@ interface FloatingHUDProps {
 }
 
 export const FloatingHUD: React.FC<FloatingHUDProps> = ({
+  dragMode,
+  onToggleDragMode,
   isPinned,
   onTogglePin,
   onRotate,
@@ -45,6 +50,23 @@ export const FloatingHUD: React.FC<FloatingHUDProps> = ({
         transition: "opacity 160ms cubic-bezier(0.16, 1, 0.3, 1), transform 160ms cubic-bezier(0.16, 1, 0.3, 1)",
       }}
     >
+      {/* Hand / Phone Drag Mode */}
+      <button
+        onClick={onToggleDragMode}
+        title={dragMode ? "Disable drag mode" : "Enable drag mode (press and hold the phone)"}
+        aria-pressed={dragMode}
+        style={{
+          width: "36px",
+          height: "36px",
+          borderRadius: "var(--radius-sm)",
+          backgroundColor: dragMode ? "var(--ink-800)" : "transparent",
+          color: dragMode ? "var(--mist-200)" : "var(--mist-400)",
+          border: dragMode ? "1px solid var(--border)" : "1px solid transparent",
+        }}
+      >
+        <HandIcon size={16} />
+      </button>
+
       {/* Pin Always-on-Top */}
       <button
         onClick={onTogglePin}

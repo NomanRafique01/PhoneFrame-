@@ -5,6 +5,10 @@ interface VideoCanvasProps {
   width: number;
   height: number;
   isStreaming: boolean;
+  // Drag mode turns the screen into a grab surface for the phone frame, so no
+  // touch, wheel, or key input may reach the device while it is armed.
+  dragMode?: boolean;
+  isDragging?: boolean;
   onInteractionChange?: (active: boolean) => void;
 }
 
@@ -68,6 +72,8 @@ function normalizeWheelDelta(delta: number, deltaMode: number): number {
 
 export const VideoCanvas: React.FC<VideoCanvasProps> = ({
   isStreaming,
+  dragMode = false,
+  isDragging = false,
   onInteractionChange,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -281,7 +287,7 @@ export const VideoCanvas: React.FC<VideoCanvasProps> = ({
   };
 
   const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (!isStreaming) return;
+    if (!isStreaming || dragMode) return;
 
     // Keep the bezel-drag handler in App from moving the window.
     event.stopPropagation();
@@ -309,7 +315,7 @@ export const VideoCanvas: React.FC<VideoCanvasProps> = ({
   };
 
   const handlePointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (!isStreaming || activePointerRef.current !== event.pointerId) return;
+    if (!isStreaming || dragMode || activePointerRef.current !== event.pointerId) return;
     event.stopPropagation();
 
     const point = mapPointer(event.clientX, event.clientY);
@@ -320,7 +326,7 @@ export const VideoCanvas: React.FC<VideoCanvasProps> = ({
   };
 
   const handlePointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (activePointerRef.current !== event.pointerId) return;
+    if (dragMode || activePointerRef.current !== event.pointerId) return;
     event.stopPropagation();
 
     const point = mapPointer(event.clientX, event.clientY);
@@ -340,7 +346,7 @@ export const VideoCanvas: React.FC<VideoCanvasProps> = ({
   };
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
-    if (!isStreaming || event.nativeEvent.isComposing) return;
+    if (!isStreaming || dragMode || event.nativeEvent.isComposing) return;
     // Leave app/system shortcuts (DevTools, quit, etc.) to the desktop.
     if (event.ctrlKey || event.metaKey || event.altKey) return;
 
@@ -365,7 +371,7 @@ export const VideoCanvas: React.FC<VideoCanvasProps> = ({
   };
 
   const handleKeyUp = (event: React.KeyboardEvent<HTMLDivElement>) => {
-    if (!isStreaming) return;
+    if (!isStreaming || dragMode) return;
     if (!pressedKeysRef.current.has(event.code)) return;
 
     const keycode = pressedKeysRef.current.get(event.code);
@@ -381,7 +387,7 @@ export const VideoCanvas: React.FC<VideoCanvasProps> = ({
   };
 
   wheelHandlerRef.current = (event: WheelEvent) => {
-    if (!isStreaming) return;
+    if (!isStreaming || dragMode) return;
 
     const rawX = normalizeWheelDelta(event.deltaX, event.deltaMode);
     const rawY = normalizeWheelDelta(event.deltaY, event.deltaMode);
@@ -414,7 +420,7 @@ export const VideoCanvas: React.FC<VideoCanvasProps> = ({
   // or zoom while the wheel is driving the phone.
   useEffect(() => {
     const element = screenRef.current;
-    if (!element || !isStreaming) return;
+    if (!element || !isStreaming || dragMode) return;
 
     const onWheel = (event: WheelEvent) => {
       event.preventDefault();
@@ -423,7 +429,7 @@ export const VideoCanvas: React.FC<VideoCanvasProps> = ({
 
     element.addEventListener("wheel", onWheel, { passive: false });
     return () => element.removeEventListener("wheel", onWheel);
-  }, [isStreaming]);
+  }, [isStreaming, dragMode]);
 
   // Never leave a finger down or a key pressed on the device after focus loss.
   useEffect(() => {
@@ -444,12 +450,22 @@ export const VideoCanvas: React.FC<VideoCanvasProps> = ({
   }, []);
 
   useEffect(() => {
-    if (isStreaming) return;
+    if (isStreaming && !dragMode) return;
+    // Arming drag mode can interrupt a held key or finger; release both so
+    // nothing stays pressed on the device while the frame is being moved.
+    if (isStreaming) {
+      for (const keycode of pressedKeysRef.current.values()) {
+        sendControl({ type: "key", action: "up", keycode, metaState: 0 });
+      }
+      if (activePointerRef.current !== null && lastPointRef.current) {
+        sendControl({ type: "touch", action: "up", ...lastPointRef.current });
+      }
+    }
     pressedKeysRef.current.clear();
     activePointerRef.current = null;
     lastPointRef.current = null;
     onInteractionChange?.(false);
-  }, [isStreaming, onInteractionChange]);
+  }, [isStreaming, dragMode, onInteractionChange]);
 
   // The component unmounts when the stream ends (the setup screen replaces
   // it), so release the window's interaction hold here as well.
@@ -462,7 +478,7 @@ export const VideoCanvas: React.FC<VideoCanvasProps> = ({
   return (
     <div
       ref={screenRef}
-      tabIndex={isStreaming ? 0 : -1}
+      tabIndex={isStreaming && !dragMode ? 0 : -1}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
@@ -482,7 +498,7 @@ export const VideoCanvas: React.FC<VideoCanvasProps> = ({
         overflow: "hidden",
         outline: "none",
         touchAction: "none",
-        cursor: isStreaming ? "default" : undefined,
+        cursor: dragMode ? (isDragging ? "grabbing" : "grab") : isStreaming ? "default" : undefined,
       }}
     >
       <canvas
