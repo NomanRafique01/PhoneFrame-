@@ -7,6 +7,16 @@ let mainWindow: BrowserWindow | null = null;
 const adbTracker = new AdbTracker();
 let mirrorManager: ScrcpyServerManager | null = null;
 
+// The floating phone must stay above every other app; re-assert topmost
+// whenever focus changes, because new apps can otherwise rise above it.
+let pinned = true;
+const PIN_LEVEL = "screen-saver";
+
+function applyPin(): void {
+  if (!mainWindow) return;
+  mainWindow.setAlwaysOnTop(pinned, PIN_LEVEL);
+}
+
 function createWindow(): void {
   mainWindow = new BrowserWindow({
     width: 350,
@@ -34,7 +44,9 @@ function createWindow(): void {
   }
 
   // Floating phone stays above other apps; it only minimizes/closes via the HUD
-  mainWindow.setAlwaysOnTop(true, "floating");
+  applyPin();
+  mainWindow.on("blur", applyPin);
+  mainWindow.on("restore", applyPin);
 
   mainWindow.on("closed", () => {
     mainWindow = null;
@@ -98,7 +110,8 @@ app.on("window-all-closed", async () => {
 // IPC handlers for window control
 ipcMain.handle("window:setAlwaysOnTop", (_event, flag: boolean) => {
   if (!mainWindow) return false;
-  mainWindow.setAlwaysOnTop(flag, "floating");
+  pinned = flag;
+  applyPin();
   return mainWindow.isAlwaysOnTop();
 });
 
