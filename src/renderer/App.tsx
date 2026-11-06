@@ -95,7 +95,7 @@ export const App: React.FC = () => {
   const [dragMode, setDragMode] = useState(false);
   const [dpadEnabled, setDpadEnabled] = useState<boolean>(() => {
     try {
-      return localStorage.getItem("phoneframe_dpad_enabled_v1") === "1";
+      return localStorage.getItem("phoneframe_dpad_enabled_v2") === "1";
     } catch {
       return false;
     }
@@ -207,7 +207,7 @@ export const App: React.FC = () => {
   // Persist the scroll-pad preference; it stays independent of the stream.
   useEffect(() => {
     try {
-      localStorage.setItem("phoneframe_dpad_enabled_v1", dpadEnabled ? "1" : "0");
+      localStorage.setItem("phoneframe_dpad_enabled_v2", dpadEnabled ? "1" : "0");
     } catch {
       // Ignore storage restrictions
     }
