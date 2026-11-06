@@ -431,7 +431,9 @@ export const App: React.FC = () => {
     }
   };
 
-  const currentColorDef = FRAME_COLOR_DEFINITIONS[frameOptions.color];
+  // Same definition the chassis renders with, so the side key recolors with
+  // the frame the moment a new frame color is picked.
+  const currentColorDef = FRAME_COLOR_DEFINITIONS[scaledOptions.color] ?? FRAME_COLOR_DEFINITIONS.slate;
   const activeDevice = adbStatus.activeDevice;
   const isDeviceConnected = adbStatus.state === "device";
   const isStreaming = mirrorState === "running";
@@ -440,12 +442,16 @@ export const App: React.FC = () => {
   // so moving between them never flickers), drag, inspector, or touch toggle.
   // A manual collapse always wins and hands over to the hardware side key.
   const hudVisible = !isHudCollapsed && (isHovered || showInspector || isDragging || touchHudOpen);
-  // The collapsed control is a volume-style side key: most of it sits inside
-  // the chassis, with only a thin edge exposed. Protrusion tracks the bezel so
-  // it stays flush at every scale without ever reaching the screen cutout.
-  const sideKeyWidth = 20;
-  const sideKeyProtrusion = Math.min(12, Math.max(7, Math.round(scaledOptions.bezelWidth * 0.62)));
-  const sideKeyInset = sideKeyWidth - sideKeyProtrusion;
+  // The collapsed control is a volume-style side key that scales 1:1 with the
+  // frame. Its hit area stops 2px short of the screen edge, so it can never
+  // paint over — or steal pointer input from — the display at any scale.
+  const frameScale = scale / 75;
+  const sideKeyProtrusion = Math.max(5, Math.round(10 * frameScale));
+  const sideKeyInset = Math.max(2, scaledOptions.bezelWidth - 2);
+  const sideKeyWidth = sideKeyInset + sideKeyProtrusion;
+  const sideKeyHeight = Math.max(24, Math.round(34 * frameScale));
+  const sideKeyRadius = Math.max(3, Math.round(4 * frameScale));
+  const sideKeyChevron = Math.max(7, Math.round(8 * frameScale));
 
   return (
     <div
@@ -542,14 +548,15 @@ export const App: React.FC = () => {
             tabIndex={isHudCollapsed ? 0 : -1}
             style={{
               position: "absolute",
-              top: "37%",
+              top: "41%",
               left: `calc(100% - ${sideKeyInset}px)`,
               zIndex: 100,
               width: `${sideKeyWidth}px`,
-              height: "36px",
+              height: `${sideKeyHeight}px`,
               padding: 0,
               background: "transparent",
               border: "none",
+              outlineOffset: "1px",
               opacity: isHudCollapsed ? 1 : 0,
               pointerEvents: isHudCollapsed ? "auto" : "none",
               transform: `translateY(-50%) translateX(${isHudCollapsed ? 0 : -10}px)`,
@@ -557,8 +564,8 @@ export const App: React.FC = () => {
                 "transform 320ms cubic-bezier(0.22, 1, 0.36, 1), opacity 320ms cubic-bezier(0.22, 1, 0.36, 1), filter 120ms ease",
             }}
           >
-            {/* Only the outer face is painted; the buried half keeps the bezel
-                untouched while the full 20px still acts as the hit target */}
+            {/* Only the outer face is painted, so the bezel stays untouched
+                while the whole key remains the click target */}
             <span
               aria-hidden="true"
               style={{
@@ -571,14 +578,14 @@ export const App: React.FC = () => {
                 alignItems: "center",
                 justifyContent: "center",
                 background: `linear-gradient(180deg, ${currentColorDef.borderHex} 0%, ${currentColorDef.hex} 46%, ${currentColorDef.borderHex} 100%)`,
-                borderRadius: "0 4px 4px 0",
+                borderRadius: `0 ${sideKeyRadius}px ${sideKeyRadius}px 0`,
                 border: `1px solid ${currentColorDef.borderHex}`,
                 borderLeft: "none",
-                boxShadow: `1px 0 2px rgba(0, 0, 0, 0.5), 3px 2px 7px rgba(0, 0, 0, 0.35), inset 0 1px 0 ${currentColorDef.highlightHex}, inset 0 -1px 0 rgba(0, 0, 0, 0.4)`,
+                boxShadow: `1px 0 2px rgba(0, 0, 0, 0.5), ${Math.round(3 * frameScale)}px ${Math.round(2 * frameScale)}px ${Math.round(7 * frameScale)}px rgba(0, 0, 0, 0.35), inset 0 1px 0 ${currentColorDef.highlightHex}, inset 0 -1px 0 rgba(0, 0, 0, 0.4)`,
                 color: "rgba(204, 208, 207, 0.65)",
               }}
             >
-              <ChevronRightIcon size={8} />
+              <ChevronRightIcon size={sideKeyChevron} />
             </span>
           </button>
 
