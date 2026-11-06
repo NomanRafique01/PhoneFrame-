@@ -68,24 +68,24 @@ export const App: React.FC = () => {
   });
   const [audioVolume, setAudioVolume] = useState<number>(() => {
     try {
-      const saved = localStorage.getItem("phoneframe_audio_volume_v1");
-      if (saved === null) return 1;
+      const saved = localStorage.getItem("phoneframe_audio_volume_v2");
+      if (saved === null) return 0.55;
       const parsed = Number(saved);
-      return Number.isFinite(parsed) && parsed >= 0 && parsed <= 1 ? parsed : 1;
+      return Number.isFinite(parsed) && parsed >= 0 && parsed <= 1 ? parsed : 0.55;
     } catch {
-      return 1;
+      return 0.55;
     }
   });
   const [scale, setScale] = useState<number>(() => {
     try {
-      const saved = localStorage.getItem("phoneframe_scale_v4") ?? localStorage.getItem("phoneframe_scale_v3");
+      const saved = localStorage.getItem("phoneframe_scale_v5");
       const parsed = saved ? Number(saved) : NaN;
       if (isNaN(parsed) || parsed < 60 || parsed > 140) {
-        return 75;
+        return 70;
       }
       return parsed;
     } catch {
-      return 75;
+      return 70;
     }
   });
   const [showInspector, setShowInspector] = useState(false);
@@ -180,7 +180,7 @@ export const App: React.FC = () => {
   // Persist scale preference across sessions
   useEffect(() => {
     try {
-      localStorage.setItem("phoneframe_scale_v4", String(scale));
+      localStorage.setItem("phoneframe_scale_v5", String(scale));
     } catch {
       // Ignore storage restrictions
     }
@@ -198,7 +198,7 @@ export const App: React.FC = () => {
   // Persist the PC audio level across sessions
   useEffect(() => {
     try {
-      localStorage.setItem("phoneframe_audio_volume_v1", String(audioVolume));
+      localStorage.setItem("phoneframe_audio_volume_v2", String(audioVolume));
     } catch {
       // Ignore storage restrictions
     }

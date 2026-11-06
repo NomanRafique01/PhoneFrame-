@@ -1,6 +1,6 @@
 {
   "name": "phoneframe",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Floating phone-frame screen mirroring for Android app developers.",
   "author": "Noman Rafique",
   "main": "dist/main/index.js",
