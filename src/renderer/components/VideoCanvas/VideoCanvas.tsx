@@ -1,7 +1,9 @@
 import React, { useEffect, useRef, useState } from "react";
 import type { ScreenControlInput } from "../../types/electron";
+import { DPad } from "../DPad/DPad";
+import type { DPadScrollTarget } from "../../input/dpadScroll";
 
-interface VideoCanvasProps {
+export interface VideoCanvasProps {
   width: number;
   height: number;
   isStreaming: boolean;
@@ -9,6 +11,8 @@ interface VideoCanvasProps {
   // touch, wheel, or key input may reach the device while it is armed.
   dragMode?: boolean;
   isDragging?: boolean;
+  // Dedicated scroll-pad overlay; its visibility is owned by the HUD.
+  showDpad?: boolean;
   onInteractionChange?: (active: boolean) => void;
 }
 
@@ -74,6 +78,7 @@ export const VideoCanvas: React.FC<VideoCanvasProps> = ({
   isStreaming,
   dragMode = false,
   isDragging = false,
+  showDpad = false,
   onInteractionChange,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -234,6 +239,27 @@ export const VideoCanvas: React.FC<VideoCanvasProps> = ({
 
   const sendControl = (input: ScreenControlInput) => {
     window.electronAPI?.sendControl?.(input);
+  };
+
+  /**
+   * The pad scrolls whatever sits under the middle of the stream. Coordinates
+   * and the size hint are in encoded-frame pixels, which keeps them correct
+   * across max_size scaling, rotation, and different device resolutions.
+   */
+  const getDpadScrollTarget = (): DPadScrollTarget | null => {
+    const canvas = canvasRef.current;
+    if (!canvas) return null;
+
+    const screenWidth = canvas.width;
+    const screenHeight = canvas.height;
+    if (screenWidth <= 0 || screenHeight <= 0) return null;
+
+    return {
+      x: Math.round(screenWidth / 2),
+      y: Math.round(screenHeight / 2),
+      screenWidth,
+      screenHeight,
+    };
   };
 
   /**
@@ -533,6 +559,10 @@ export const VideoCanvas: React.FC<VideoCanvasProps> = ({
           <span className="stream-starting-dot" />
           <span>{isStreaming ? "WAITING FOR STREAM…" : "STARTING STREAM…"}</span>
         </div>
+      )}
+
+      {showDpad && isStreaming && !dragMode && (
+        <DPad getScrollTarget={getDpadScrollTarget} onDragStateChange={onInteractionChange} />
       )}
 
     </div>

@@ -113,6 +113,164 @@ button:focus-visible {
   border-radius: var(--radius-full);
 }
 
+/* In-screen D-Pad: a floating graphite pad over the mirrored display. The
+   overlay is click-through; only the four keys opt into pointer events. */
+.dpad-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-app-region: no-drag;
+}
+
+.dpad-cluster {
+  position: absolute;
+  display: grid;
+  pointer-events: none;
+  transform-origin: bottom left;
+  animation: dpad-enter 180ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes dpad-enter {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.dpad-button {
+  pointer-events: auto;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(230, 236, 239, 0.94);
+  background: linear-gradient(
+    155deg,
+    rgba(58, 78, 94, 0.52) 0%,
+    rgba(24, 40, 52, 0.48) 46%,
+    rgba(12, 26, 36, 0.58) 100%
+  );
+  border: 1px solid rgba(183, 199, 208, 0.18);
+  backdrop-filter: blur(7px) saturate(1.05);
+  -webkit-backdrop-filter: blur(7px) saturate(1.05);
+  box-shadow:
+    0 6px 14px -4px rgba(0, 0, 0, 0.6),
+    0 2px 4px rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.14),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.3);
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.45));
+  cursor: pointer;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-user-drag: none;
+  transition:
+    background 120ms ease,
+    border-color 120ms ease,
+    box-shadow 120ms ease,
+    color 120ms ease,
+    transform 80ms ease;
+}
+
+.dpad-button:hover {
+  background: linear-gradient(
+    155deg,
+    rgba(76, 100, 119, 0.64) 0%,
+    rgba(33, 53, 68, 0.6) 46%,
+    rgba(16, 32, 44, 0.7) 100%
+  );
+  border-color: rgba(204, 220, 228, 0.32);
+  color: #ffffff;
+  box-shadow:
+    0 6px 18px -4px rgba(0, 0, 0, 0.65),
+    0 0 0 1px rgba(155, 168, 171, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.18);
+}
+
+.dpad-button:active {
+  transform: scale(0.92);
+  background: linear-gradient(
+    155deg,
+    rgba(17, 30, 40, 0.74) 0%,
+    rgba(9, 21, 29, 0.78) 100%
+  );
+  border-color: rgba(155, 168, 171, 0.24);
+  box-shadow:
+    inset 0 2px 6px rgba(0, 0, 0, 0.55),
+    inset 0 0 0 1px rgba(0, 0, 0, 0.25);
+}
+
+.dpad-button:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* Center hub: a quiet grab handle for repositioning the whole pad. */
+.dpad-hub {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-user-drag: none;
+}
+
+.dpad-hub:active,
+.dpad-hub--dragging {
+  cursor: grabbing;
+}
+
+.dpad-hub-grip {
+  width: 60%;
+  height: 60%;
+  border-radius: 50%;
+  background: rgba(17, 33, 45, 0.46);
+  border: 1px solid rgba(204, 208, 207, 0.16);
+  box-shadow:
+    0 2px 5px rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 120ms ease, border-color 120ms ease, transform 80ms ease;
+}
+
+.dpad-hub-grip::after {
+  content: "";
+  width: 8px;
+  height: 8px;
+  background-image: radial-gradient(
+    circle,
+    rgba(226, 232, 235, 0.62) 0.8px,
+    transparent 1.1px
+  );
+  background-size: 4px 4px;
+}
+
+.dpad-hub:hover .dpad-hub-grip {
+  background: rgba(33, 53, 68, 0.58);
+  border-color: rgba(204, 220, 228, 0.28);
+}
+
+.dpad-hub--dragging .dpad-hub-grip {
+  background: rgba(37, 55, 69, 0.66);
+  border-color: rgba(204, 220, 228, 0.34);
+  transform: scale(1.05);
+}
+
 /* Clean dark scrollbar */
 ::-webkit-scrollbar {
   width: 6px;
@@ -184,5 +342,14 @@ button:focus-visible {
   .hud-volume-flyout {
     transform: translateY(-50%) !important;
     transition: opacity 120ms linear !important;
+  }
+  .dpad-cluster {
+    animation: none;
+  }
+  .dpad-button {
+    transition: none;
+  }
+  .dpad-hub-grip {
+    transition: none;
   }
 }

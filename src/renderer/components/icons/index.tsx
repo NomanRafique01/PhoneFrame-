@@ -212,6 +212,27 @@ export const HandIcon: React.FC<IconProps> = ({ size = 18, ...props }) => (
   </svg>
 );
 
+export const DPadIcon: React.FC<IconProps> = ({ size = 18, ...props }) => (
+  <svg
+    viewBox="0 0 24 24"
+    width={size}
+    height={size}
+    fill="none"
+    stroke="currentColor"
+    strokeWidth={1.5}
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+    {...props}
+  >
+    <rect x="9.25" y="2.75" width="5.5" height="5.5" rx="1.3" />
+    <rect x="9.25" y="15.75" width="5.5" height="5.5" rx="1.3" />
+    <rect x="2.75" y="9.25" width="5.5" height="5.5" rx="1.3" />
+    <rect x="15.75" y="9.25" width="5.5" height="5.5" rx="1.3" />
+    <circle cx="12" cy="12" r="0.9" fill="currentColor" stroke="none" opacity="0.6" />
+  </svg>
+);
+
 export const SettingsIcon: React.FC<IconProps> = ({ size = 18, ...props }) => (
   <svg
     viewBox="0 0 24 24"

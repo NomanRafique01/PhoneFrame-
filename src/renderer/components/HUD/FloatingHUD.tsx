@@ -1,6 +1,7 @@
 import React, { useRef } from "react";
 import {
   ChevronLeftIcon,
+  DPadIcon,
   HandIcon,
   PinIcon,
   RotateIcon,
@@ -14,6 +15,8 @@ import {
 interface FloatingHUDProps {
   dragMode: boolean;
   onToggleDragMode: () => void;
+  dpadEnabled: boolean;
+  onToggleDpad: () => void;
   onCollapse: () => void;
   isPinned: boolean;
   onTogglePin: () => void;
@@ -162,6 +165,8 @@ const VolumeSlider: React.FC<VolumeSliderProps> = ({ value, onChange }) => {
 export const FloatingHUD: React.FC<FloatingHUDProps> = ({
   dragMode,
   onToggleDragMode,
+  dpadEnabled,
+  onToggleDpad,
   onCollapse,
   isPinned,
   onTogglePin,
@@ -224,6 +229,24 @@ export const FloatingHUD: React.FC<FloatingHUDProps> = ({
         }}
       >
         <HandIcon size={16} />
+      </button>
+
+      {/* On-screen D-Pad / directional scroll controls */}
+      <button
+        onClick={onToggleDpad}
+        title={dpadEnabled ? "Hide scroll pad" : "Show scroll pad"}
+        aria-label={dpadEnabled ? "Hide scroll pad" : "Show scroll pad"}
+        aria-pressed={dpadEnabled}
+        style={{
+          width: "36px",
+          height: "36px",
+          borderRadius: "var(--radius-sm)",
+          backgroundColor: dpadEnabled ? "var(--ink-800)" : "transparent",
+          color: dpadEnabled ? "var(--mist-200)" : "var(--mist-400)",
+          border: dpadEnabled ? "1px solid var(--border)" : "1px solid transparent",
+        }}
+      >
+        <DPadIcon size={16} />
       </button>
 
       {/* Pin Always-on-Top */}

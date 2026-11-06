@@ -83,6 +83,13 @@ export const App: React.FC = () => {
   const [isHovered, setIsHovered] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [dragMode, setDragMode] = useState(false);
+  const [dpadEnabled, setDpadEnabled] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem("phoneframe_dpad_enabled_v1") === "1";
+    } catch {
+      return false;
+    }
+  });
   const [isScreenInteracting, setIsScreenInteracting] = useState(false);
   const [touchHudOpen, setTouchHudOpen] = useState(false);
   const [isHudCollapsed, setIsHudCollapsed] = useState(false);
@@ -134,6 +141,15 @@ export const App: React.FC = () => {
       // Ignore storage restrictions
     }
   }, [audioVolume]);
+
+  // Persist the scroll-pad preference; it stays independent of the stream.
+  useEffect(() => {
+    try {
+      localStorage.setItem("phoneframe_dpad_enabled_v1", dpadEnabled ? "1" : "0");
+    } catch {
+      // Ignore storage restrictions
+    }
+  }, [dpadEnabled]);
 
   usePhoneAudio(audioMuted, audioVolume);
 
@@ -561,6 +577,8 @@ export const App: React.FC = () => {
             <FloatingHUD
               dragMode={dragMode}
               onToggleDragMode={handleToggleDragMode}
+              dpadEnabled={dpadEnabled}
+              onToggleDpad={() => setDpadEnabled((enabled) => !enabled)}
               onCollapse={() => setIsHudCollapsed(true)}
               isPinned={isPinned}
               onTogglePin={handleTogglePin}
@@ -690,6 +708,7 @@ export const App: React.FC = () => {
                   isStreaming={isStreaming}
                   dragMode={dragMode}
                   isDragging={isDragging}
+                  showDpad={dpadEnabled}
                   onInteractionChange={setIsScreenInteracting}
                 />
               ) : (
