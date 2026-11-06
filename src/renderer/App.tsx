@@ -34,7 +34,7 @@ export const App: React.FC = () => {
   const [mirrorState, setMirrorState] = useState<MirrorState>("stopped");
   const [mirrorError, setMirrorError] = useState<string | null>(null);
 
-  const [isPinned, setIsPinned] = useState(false);
+  const [isPinned, setIsPinned] = useState(true);
   const [scale, setScale] = useState<number>(() => {
     try {
       const saved = localStorage.getItem("phoneframe_scale_v2") ?? localStorage.getItem("phoneframe_scale");
@@ -50,7 +50,9 @@ export const App: React.FC = () => {
   const [showInspector, setShowInspector] = useState(false);
   const [isWizardActive, setIsWizardActive] = useState(true);
   const [isHovered, setIsHovered] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
   const hideTimerRef = useRef<number | null>(null);
+  const dragRef = useRef<{ pointerId: number; lastX: number; lastY: number } | null>(null);
 
   // Persist scale preference across sessions
   useEffect(() => {
@@ -154,10 +156,11 @@ export const App: React.FC = () => {
     window.electronAPI?.setWindowSize(window.screen.availWidth, window.screen.availHeight);
   }, []);
 
-  // Click-through when the pointer is off the window (transparent overlay must not block the desktop)
+  // Click-through when the pointer is off the phone (transparent overlay must not block the desktop).
+  // While dragging, the window must keep receiving events so the drag survives the cursor leaving the frame.
   useEffect(() => {
-    window.electronAPI?.setIgnoreMouseEvents?.(!isHovered);
-  }, [isHovered]);
+    window.electronAPI?.setIgnoreMouseEvents?.(!(isHovered || isDragging));
+  }, [isHovered, isDragging]);
 
   // Window Always-on-top handler
   const handleTogglePin = async () => {
@@ -207,6 +210,36 @@ export const App: React.FC = () => {
     }, 400);
   };
 
+  // Drag the frame by its bezel: the screen viewport, HUD, and controls opt out
+  const handleDragStart = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
+    const target = e.target as HTMLElement;
+    if (target.closest(".app-no-drag, button, input, select, textarea, a")) return;
+    dragRef.current = { pointerId: e.pointerId, lastX: e.clientX, lastY: e.clientY };
+    e.currentTarget.setPointerCapture(e.pointerId);
+    setIsDragging(true);
+  };
+
+  const handleDragMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== e.pointerId) return;
+    const dx = e.clientX - drag.lastX;
+    const dy = e.clientY - drag.lastY;
+    if (dx === 0 && dy === 0) return;
+    drag.lastX = e.clientX;
+    drag.lastY = e.clientY;
+    window.electronAPI?.moveWindowBy(dx, dy);
+  };
+
+  const handleDragEnd = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!dragRef.current || dragRef.current.pointerId !== e.pointerId) return;
+    dragRef.current = null;
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    }
+    setIsDragging(false);
+  };
+
   const currentColorDef = FRAME_COLOR_DEFINITIONS[frameOptions.color];
   const activeDevice = adbStatus.activeDevice;
   const isDeviceConnected = adbStatus.state === "device";
@@ -243,6 +276,10 @@ export const App: React.FC = () => {
           style={{ position: "relative", display: "flex" }}
           onMouseEnter={handleMouseEnter}
           onMouseLeave={handleMouseLeave}
+          onPointerDown={handleDragStart}
+          onPointerMove={handleDragMove}
+          onPointerUp={handleDragEnd}
+          onPointerCancel={handleDragEnd}
         >
           {/* Floating Contextual HUD (Hover revealed or always visible when inspector open) */}
           <div
@@ -252,9 +289,9 @@ export const App: React.FC = () => {
               right: "calc(100% + 10px)",
               left: "auto",
               zIndex: 100,
-              opacity: isHovered || showInspector ? 1 : 0,
-              pointerEvents: isHovered || showInspector ? "auto" : "none",
-              transform: isHovered || showInspector
+              opacity: isHovered || showInspector || isDragging ? 1 : 0,
+              pointerEvents: isHovered || showInspector || isDragging ? "auto" : "none",
+              transform: isHovered || showInspector || isDragging
                 ? "translateY(-50%) translateX(0)"
                 : "translateY(-50%) translateX(-6px)",
               transition: "opacity 160ms cubic-bezier(0.16, 1, 0.3, 1), transform 160ms cubic-bezier(0.16, 1, 0.3, 1)",

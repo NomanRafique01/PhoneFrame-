@@ -33,6 +33,9 @@ function createWindow(): void {
     mainWindow.loadFile(path.join(__dirname, "../renderer/index.html"));
   }
 
+  // Floating phone stays above other apps; it only minimizes/closes via the HUD
+  mainWindow.setAlwaysOnTop(true, "floating");
+
   mainWindow.on("closed", () => {
     mainWindow = null;
   });
@@ -127,6 +130,12 @@ ipcMain.handle("window:setWindowSize", (_event, width: number, height: number) =
 
 ipcMain.handle("window:setIgnoreMouseEvents", (_event, flag: boolean) => {
   mainWindow?.setIgnoreMouseEvents(flag, { forward: true });
+});
+
+ipcMain.handle("window:moveBy", (_event, dx: number, dy: number) => {
+  if (!mainWindow) return;
+  const [x, y] = mainWindow.getPosition();
+  mainWindow.setPosition(x + Math.round(dx), y + Math.round(dy));
 });
 
 // ADB IPC handlers
