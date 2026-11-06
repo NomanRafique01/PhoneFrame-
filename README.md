@@ -60,11 +60,14 @@ An emulator gives you virtual hardware and a heavy IDE-shaped window. A desktop 
 ## Download
 
 <p align="center">
-  <a href="https://github.com/NomanRafique01/PhoneFrame-/releases/latest/download/PhoneFrame-Setup-0.1.2.exe">
-    <img src="https://img.shields.io/badge/Download-Windows%20x64%20Installer-00f5d4?style=for-the-badge&logo=windows&logoColor=white&labelColor=1a1a24" alt="Download Windows installer"/>
+  <a href="https://github.com/NomanRafique01/PhoneFrame-/releases/download/v0.1.2/PhoneFrame-Setup-0.1.2.exe" title="Download PhoneFrame v0.1.2 for Windows x64">
+    <img src="assets/btn-download-v0.1.2.svg" alt="Download PhoneFrame v0.1.2 for Windows x64" height="66" />
   </a>
+</p>
+
+<p align="center">
   <a href="https://github.com/NomanRafique01/PhoneFrame-/releases/latest">
-    <img src="https://img.shields.io/badge/All%20Releases-GitHub-64748b?style=for-the-badge&logo=github&logoColor=white&labelColor=1a1a24" alt="All releases"/>
+    <img src="https://img.shields.io/badge/All%20Releases-GitHub-64748b?style=flat-square&logo=github&logoColor=white" alt="All releases"/>
   </a>
 </p>
 
