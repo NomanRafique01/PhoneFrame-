@@ -226,12 +226,13 @@ export const App: React.FC = () => {
     const stage = stageRef.current;
     const wrap = phoneWrapRef.current;
     if (!stage || !wrap) return { x, y };
-    // Phone edges can reach every corner of the page; only the right side
-    // keeps a 64px gutter so the revealed HUD never crosses into the panel strip.
+    // Left, top, and bottom edges can reach the window edges; the right side
+    // keeps a small HUD gutter, plus the settings strip while the panel is open.
     const reachX = Math.max(0, (stage.clientWidth - wrap.offsetWidth) / 2);
     const reachY = Math.max(0, (stage.clientHeight - wrap.offsetHeight) / 2);
+    const rightGutter = showInspector ? 320 + 16 : 16;
     const minX = -reachX;
-    const maxX = Math.max(minX, reachX - 64);
+    const maxX = Math.max(minX, reachX - rightGutter);
     return {
       x: Math.min(maxX, Math.max(minX, x)),
       y: Math.min(reachY, Math.max(-reachY, y)),
@@ -286,7 +287,8 @@ export const App: React.FC = () => {
         position: "relative",
       }}
     >
-      {/* Phone page (left region): the frame lives and drags inside this area only */}
+      {/* Phone page: the frame lives and drags here; the settings strip is
+          only reserved while the panel is actually open */}
       <div
         className="phone-stage"
         ref={stageRef}
@@ -297,7 +299,6 @@ export const App: React.FC = () => {
           justifyContent: "center",
           position: "relative",
           padding: "24px",
-          marginRight: "320px",
         }}
       >
         {/* Phone + HUD wrapper (shrink-fits the frame so the HUD can anchor to it) */}
