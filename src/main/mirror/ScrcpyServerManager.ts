@@ -75,6 +75,10 @@ export class ScrcpyServerManager extends EventEmitter {
     return this.state;
   }
 
+  public getActiveSerial(): string | null {
+    return this.activeSerial;
+  }
+
   public findServerJar(): string | null {
     const candidates = [
       path.join(process.cwd(), "assets", "scrcpy-server-v3.1.jar"),

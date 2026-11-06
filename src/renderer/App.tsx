@@ -33,6 +33,14 @@ export const App: React.FC = () => {
 
   const [mirrorState, setMirrorState] = useState<MirrorState>("stopped");
   const [mirrorError, setMirrorError] = useState<string | null>(null);
+  const [sessionNotice, setSessionNotice] = useState<string | null>(null);
+  const prevMirrorStateRef = useRef<MirrorState>("stopped");
+  const lastAdbStatusRef = useRef<AdbStatusPayload>({
+    state: "no-device",
+    devices: [],
+    activeDevice: null,
+  });
+  const noticeTimerRef = useRef<number | null>(null);
 
   const [isPinned, setIsPinned] = useState(true);
   const [scale, setScale] = useState<number>(() => {
@@ -74,13 +82,17 @@ export const App: React.FC = () => {
     // Initial ADB fetch
     if (window.electronAPI?.getAdbStatus) {
       window.electronAPI.getAdbStatus().then((status) => {
-        if (status) setAdbStatus(status);
+        if (status) {
+          lastAdbStatusRef.current = status;
+          setAdbStatus(status);
+        }
       });
     }
 
     // ADB event listener
     if (window.electronAPI?.onAdbStatusChange) {
       const unsubscribeAdb = window.electronAPI.onAdbStatusChange((status) => {
+        lastAdbStatusRef.current = status;
         setAdbStatus(status);
 
         // Auto-adapt aspect ratio to connected device
@@ -104,11 +116,26 @@ export const App: React.FC = () => {
 
       // Mirror state listener
       const unsubscribeMirror = window.electronAPI?.onMirrorStateChange?.((payload) => {
+        const wasActive =
+          prevMirrorStateRef.current === "running" || prevMirrorStateRef.current === "starting";
+        const isEnded = payload.state === "stopped" || payload.state === "error";
+        prevMirrorStateRef.current = payload.state;
+
         setMirrorState(payload.state);
-        if (payload.error) {
-          setMirrorError(payload.error);
-        } else {
-          setMirrorError(null);
+        setMirrorError(payload.error ?? null);
+
+        // Any stream termination — manual stop, unplug, scrcpy crash — returns
+        // to the connection screen. ADB detection keeps running underneath.
+        if (wasActive && isEnded) {
+          setIsWizardActive(true);
+          const stillConnected = lastAdbStatusRef.current.state === "device";
+          setSessionNotice(
+            payload.state === "error" || !stillConnected
+              ? "Phone disconnected. Waiting for a new connection…"
+              : "Stream stopped. Device is still connected."
+          );
+          if (noticeTimerRef.current) window.clearTimeout(noticeTimerRef.current);
+          noticeTimerRef.current = window.setTimeout(() => setSessionNotice(null), 5000);
         }
       });
 
@@ -136,6 +163,7 @@ export const App: React.FC = () => {
         unsubscribeAdb();
         unsubscribeMirror?.();
         unsubscribeVideoInit?.();
+        if (noticeTimerRef.current) window.clearTimeout(noticeTimerRef.current);
       };
     }
   }, []);
@@ -420,6 +448,7 @@ export const App: React.FC = () => {
               {isWizardActive ? (
                 <SetupWizard
                   adbStatus={adbStatus}
+                  notice={sessionNotice}
                   onComplete={() => {
                     setIsWizardActive(false);
                     if (isDeviceConnected) {

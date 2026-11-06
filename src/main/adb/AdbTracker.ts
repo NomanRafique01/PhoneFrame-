@@ -25,6 +25,7 @@ export class AdbTracker extends EventEmitter {
   private adbPath: string | null = null;
   private trackProcess: ChildProcessWithoutNullStreams | null = null;
   private pollInterval: NodeJS.Timeout | null = null;
+  private running = false;
   private currentStatus: AdbStatusPayload = {
     state: "no-device",
     devices: [],
@@ -92,45 +93,61 @@ export class AdbTracker extends EventEmitter {
   }
 
   /**
-   * Start tracking devices via `adb track-devices` and polling fallback
+   * Start tracking devices via `adb track-devices` and polling fallback.
+   * Idempotent: repeated calls never create a second monitor.
    */
   public async start(): Promise<void> {
+    if (this.running) return;
+    this.running = true;
+
     const adb = await this.resolveAdbPath();
-
     this.runDevicesPoll(adb);
+    this.startTrackDevices(adb);
 
-    try {
-      this.trackProcess = spawn(adb, ["track-devices"]);
-
-      let buffer = "";
-      this.trackProcess.stdout.on("data", (chunk: Buffer) => {
-        buffer += chunk.toString();
-        // track-devices sends device list updates
-        this.runDevicesPoll(adb);
-      });
-
-      this.trackProcess.stderr.on("data", (data: Buffer) => {
-        console.warn("[ADB Tracker stderr]:", data.toString().trim());
-      });
-
-      this.trackProcess.on("close", () => {
-        this.trackProcess = null;
-      });
-    } catch (err) {
-      console.error("[ADB Tracker spawn error]:", err);
-    }
-
-    // Periodic safety poll every 3 seconds
+    // Safety poll: catches anything the event stream misses.
     this.pollInterval = setInterval(() => {
-      this.runDevicesPoll(adb);
+      if (this.running) this.runDevicesPoll(adb);
     }, 3000);
+  }
+
+  /**
+   * Event-driven device feed. If the adb process dies (e.g. adb server was
+   * killed), re-attach it so monitoring never silently degrades to polling.
+   */
+  private startTrackDevices(adb: string): void {
+    if (!this.running || this.trackProcess) return;
+
+    const track = spawn(adb, ["track-devices"]);
+    this.trackProcess = track;
+
+    track.stdout.on("data", () => {
+      // track-devices sends device list updates
+      if (this.running) this.runDevicesPoll(adb);
+    });
+
+    track.stderr.on("data", (data: Buffer) => {
+      console.warn("[ADB Tracker stderr]:", data.toString().trim());
+    });
+
+    track.on("error", (err) => {
+      console.error("[ADB Tracker error]:", err.message);
+      if (this.trackProcess === track) this.trackProcess = null;
+    });
+
+    track.on("close", () => {
+      if (this.trackProcess === track) this.trackProcess = null;
+      if (!this.running) return;
+      setTimeout(() => this.startTrackDevices(adb), 1000);
+    });
   }
 
   /**
    * Stop tracking
    */
   public stop(): void {
+    this.running = false;
     if (this.trackProcess) {
+      this.trackProcess.removeAllListeners();
       this.trackProcess.kill();
       this.trackProcess = null;
     }
