@@ -93,6 +93,7 @@ export const App: React.FC = () => {
   const [isScreenInteracting, setIsScreenInteracting] = useState(false);
   const [touchHudOpen, setTouchHudOpen] = useState(false);
   const [isHudCollapsed, setIsHudCollapsed] = useState(false);
+  const [hudHeight, setHudHeight] = useState(0);
   const [phoneOffset, setPhoneOffset] = useState({ x: 0, y: 0 });
   const hideTimerRef = useRef<number | null>(null);
   const tapRef = useRef<{ pointerId: number; x: number; y: number; t: number } | null>(null);
@@ -108,6 +109,7 @@ export const App: React.FC = () => {
   const startInFlightRef = useRef(false);
   const stageRef = useRef<HTMLDivElement>(null);
   const phoneWrapRef = useRef<HTMLDivElement>(null);
+  const hudDrawerRef = useRef<HTMLDivElement>(null);
 
   const showSessionNotice = (text: string) => {
     setSessionNotice(text);
@@ -277,6 +279,23 @@ export const App: React.FC = () => {
   useEffect(() => {
     if (showInspector) setPhoneOffset({ x: 0, y: 0 });
   }, [showInspector]);
+
+  // The collapsed side key mirrors the HUD's top collapse button, so it must
+  // follow the HUD's actual height as controls are added or removed.
+  useEffect(() => {
+    const drawer = hudDrawerRef.current;
+    if (!drawer) return;
+
+    const measure = () => {
+      const next = Math.round(drawer.getBoundingClientRect().height);
+      setHudHeight((prev) => (prev === next ? prev : next));
+    };
+
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(drawer);
+    return () => observer.disconnect();
+  }, []);
 
   // A pending long-press must never outlive the component.
   useEffect(() => {
@@ -506,6 +525,9 @@ export const App: React.FC = () => {
   const sideKeyHeight = Math.max(24, Math.round(34 * frameScale));
   const sideKeyRadius = Math.max(3, Math.round(4 * frameScale));
   const sideKeyChevron = Math.max(7, Math.round(8 * frameScale));
+  // HUD nav: 6px top padding + 36px collapse button → 24px to its center.
+  const collapsedKeyTop =
+    hudHeight > 0 ? `calc(50% - ${Math.round(hudHeight / 2 - 24)}px)` : "41%";
 
   return (
     <div
@@ -558,6 +580,7 @@ export const App: React.FC = () => {
           {/* Floating Contextual HUD — slides out from behind the right bezel like a drawer */}
           <div
             className="hud-drawer"
+            ref={hudDrawerRef}
             style={{
               position: "absolute",
               top: "50%",
@@ -608,7 +631,7 @@ export const App: React.FC = () => {
             tabIndex={isHudCollapsed ? 0 : -1}
             style={{
               position: "absolute",
-              top: "41%",
+              top: collapsedKeyTop,
               left: `calc(100% - ${sideKeyInset}px)`,
               zIndex: 100,
               width: `${sideKeyWidth}px`,
