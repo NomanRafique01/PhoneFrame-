@@ -438,11 +438,14 @@ export const App: React.FC = () => {
   const isStarting = mirrorState === "starting";
   // Shared visibility for the drawer: phone hover (phone + HUD are one wrapper,
   // so moving between them never flickers), drag, inspector, or touch toggle.
-  // A manual collapse always wins and hands over to the compact edge toggle.
+  // A manual collapse always wins and hands over to the hardware side key.
   const hudVisible = !isHudCollapsed && (isHovered || showInspector || isDragging || touchHudOpen);
-  // The tab sinks half a bezel into the chassis so it reads as part of the
-  // frame; at every scale it stays clear of the screen cutout.
-  const edgeTabOverlap = Math.max(2, Math.round(scaledOptions.bezelWidth / 2));
+  // The collapsed control is a volume-style side key: most of it sits inside
+  // the chassis, with only a thin edge exposed. Protrusion tracks the bezel so
+  // it stays flush at every scale without ever reaching the screen cutout.
+  const sideKeyWidth = 20;
+  const sideKeyProtrusion = Math.min(12, Math.max(7, Math.round(scaledOptions.bezelWidth * 0.62)));
+  const sideKeyInset = sideKeyWidth - sideKeyProtrusion;
 
   return (
     <div
@@ -525,11 +528,12 @@ export const App: React.FC = () => {
             />
           </div>
 
-          {/* Collapsed HUD edge tab — embedded in the right bezel so it reads
-              as a physical side-mounted control rather than a floating button */}
+          {/* Collapsed HUD side key — a hardware volume-style key sunk into the
+              right chassis, sitting just below the drawn power button. Only the
+              outer edge protrudes, so it reads as part of the frame. */}
           <button
             type="button"
-            className="app-no-drag"
+            className="app-no-drag hud-side-key"
             onClick={() => setIsHudCollapsed(false)}
             title="Expand HUD"
             aria-label="Expand HUD"
@@ -538,29 +542,44 @@ export const App: React.FC = () => {
             tabIndex={isHudCollapsed ? 0 : -1}
             style={{
               position: "absolute",
-              top: "50%",
-              left: `calc(100% - ${edgeTabOverlap}px)`,
+              top: "37%",
+              left: `calc(100% - ${sideKeyInset}px)`,
               zIndex: 100,
-              width: "22px",
-              height: "64px",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
+              width: `${sideKeyWidth}px`,
+              height: "36px",
               padding: 0,
-              background: `linear-gradient(180deg, ${currentColorDef.borderHex} 0%, ${currentColorDef.hex} 100%)`,
-              borderRadius: "0 10px 10px 0",
-              border: `1px solid ${currentColorDef.borderHex}`,
-              borderLeft: "none",
-              boxShadow: `0 3px 10px rgba(0, 0, 0, 0.45), inset 0 1px 0 ${currentColorDef.highlightHex}`,
-              color: "var(--mist-200)",
+              background: "transparent",
+              border: "none",
               opacity: isHudCollapsed ? 1 : 0,
               pointerEvents: isHudCollapsed ? "auto" : "none",
-              transform: `translateY(-50%) translateX(${isHudCollapsed ? 0 : -12}px)`,
+              transform: `translateY(-50%) translateX(${isHudCollapsed ? 0 : -10}px)`,
               transition:
-                "transform 320ms cubic-bezier(0.22, 1, 0.36, 1), opacity 320ms cubic-bezier(0.22, 1, 0.36, 1)",
+                "transform 320ms cubic-bezier(0.22, 1, 0.36, 1), opacity 320ms cubic-bezier(0.22, 1, 0.36, 1), filter 120ms ease",
             }}
           >
-            <ChevronRightIcon size={14} />
+            {/* Only the outer face is painted; the buried half keeps the bezel
+                untouched while the full 20px still acts as the hit target */}
+            <span
+              aria-hidden="true"
+              style={{
+                position: "absolute",
+                top: 0,
+                right: 0,
+                width: `${sideKeyProtrusion}px`,
+                height: "100%",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                background: `linear-gradient(180deg, ${currentColorDef.borderHex} 0%, ${currentColorDef.hex} 46%, ${currentColorDef.borderHex} 100%)`,
+                borderRadius: "0 4px 4px 0",
+                border: `1px solid ${currentColorDef.borderHex}`,
+                borderLeft: "none",
+                boxShadow: `1px 0 2px rgba(0, 0, 0, 0.5), 3px 2px 7px rgba(0, 0, 0, 0.35), inset 0 1px 0 ${currentColorDef.highlightHex}, inset 0 -1px 0 rgba(0, 0, 0, 0.4)`,
+                color: "rgba(204, 208, 207, 0.65)",
+              }}
+            >
+              <ChevronRightIcon size={8} />
+            </span>
           </button>
 
           {/* Procedural SVG Phone Frame Engine */}

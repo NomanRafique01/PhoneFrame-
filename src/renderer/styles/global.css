@@ -79,6 +79,16 @@ button:focus-visible {
   -webkit-app-region: no-drag;
 }
 
+/* Collapsed-HUD side key: physical press feedback on top of the inline
+   frame-derived gradient (filter avoids overriding the inline transform) */
+.hud-side-key:hover {
+  filter: brightness(1.12);
+}
+
+.hud-side-key:active {
+  filter: brightness(0.86);
+}
+
 /* Clean dark scrollbar */
 ::-webkit-scrollbar {
   width: 6px;
