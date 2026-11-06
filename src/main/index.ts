@@ -30,11 +30,10 @@ function notifyFullscreenChanged(flag: boolean): void {
 /**
  * Transparent windows cannot enter native fullscreen on Windows — Electron only
  * resizes them to the monitor while isFullScreen() stays false, so the native
- * state can never be exited and the overlay would stay full-height (blocking
- * the auto-hidden taskbar). Immersive mode is therefore explicit work-area
- * bounds plus the saved windowed geometry. It deliberately keeps the taskbar
- * reveal strip free: a window that covers the screen edge turns clicks aimed at
- * the (invisible) taskbar into taps on the phone's own navigation bar.
+ * state can never be exited. Immersive mode is therefore explicit bounds plus
+ * the saved windowed geometry. Immersive covers the whole display including
+ * the taskbar area, so the black backdrop is edge-to-edge; windowed mode keeps
+ * the taskbar reveal strip free instead.
  */
 function setImmersive(active: boolean): boolean {
   if (!mainWindow) return false;
@@ -43,7 +42,7 @@ function setImmersive(active: boolean): boolean {
   if (active) {
     fullscreenRestoreBounds = mainWindow.getBounds();
     mainWindow.setResizable(false);
-    mainWindow.setBounds(computeWindowBounds());
+    mainWindow.setBounds(computeImmersiveBounds());
   } else {
     const restore = fullscreenRestoreBounds ?? computeWindowBounds();
     fullscreenRestoreBounds = null;
@@ -56,8 +55,15 @@ function setImmersive(active: boolean): boolean {
   return active;
 }
 
-// Fullscreen bounds minus the auto-hidden-taskbar reserve, shared by window
-// creation and the setWindowSize IPC so the window never appears at any
+// The whole monitor, taskbar included. Immersive mode must paint over every
+// desktop edge, and the saved windowed geometry is restored on exit.
+function computeImmersiveBounds(): { x: number; y: number; width: number; height: number } {
+  const { x, y, width, height } = screen.getPrimaryDisplay().bounds;
+  return { x, y, width, height };
+}
+
+// Windowed bounds (work area minus the auto-hidden-taskbar reserve), shared by
+// window creation and the setWindowSize IPC so the window never appears at any
 // intermediate position.
 function computeWindowBounds(): { x: number; y: number; width: number; height: number } {
   const display = screen.getPrimaryDisplay();
