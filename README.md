@@ -10,6 +10,9 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/NomanRafique01/PhoneFrame-/releases/latest">
+    <img src="https://img.shields.io/github/v/release/NomanRafique01/PhoneFrame-?style=flat-square&color=00f5d4" alt="Latest release"/>
+  </a>
   <img src="https://img.shields.io/badge/platform-Windows%20x64-0078d4?style=flat-square&logo=windows&logoColor=white" alt="Platform: Windows x64"/>
   <img src="https://img.shields.io/badge/Electron-33-47848f?style=flat-square&logo=electron&logoColor=white" alt="Electron 33"/>
   <img src="https://img.shields.io/badge/React-18-61dafb?style=flat-square&logo=react&logoColor=black" alt="React 18"/>
@@ -19,13 +22,22 @@
   <img src="https://hits.sh/github.com/NomanRafique01/PhoneFrame-.svg?style=flat-square&label=Visitors&color=00E5C0&labelColor=1a1a24" alt="Repository visitor counter"/>
 </p>
 
+<p align="center">
+  <a href="https://github.com/NomanRafique01/PhoneFrame-/releases/latest">
+    <img src="https://img.shields.io/badge/Download-Latest%20Version-00f5d4?style=for-the-badge&logo=windows&logoColor=white&labelColor=1a1a24" alt="Download latest version"/>
+  </a>
+  <a href="https://github.com/NomanRafique01/PhoneFrame-/releases/latest">
+    <img src="https://img.shields.io/badge/All%20Releases-GitHub-64748b?style=for-the-badge&logo=github&logoColor=white&labelColor=1a1a24" alt="All releases"/>
+  </a>
+</p>
+
 ---
 
 ## Table of Contents
 
 - [Why PhoneFrame](#why-phoneframe)
+- [Download](#download)
 - [Features](#features)
-- [Architecture](#architecture)
 - [How Mirroring Works](#how-mirroring-works)
 - [Getting Started](#getting-started)
 - [FAQ](#faq)
@@ -44,6 +56,19 @@ An emulator gives you virtual hardware and a heavy IDE-shaped window. A desktop 
 | Input | Emulated | Backed by keyboard shortcuts | **Touch, scroll, and keyboard injected directly** |
 | Audio | Emulator output | Device audio to PC | **Device audio to PC with exclusive routing** |
 | Setup | SDK plus a virtual device | scrcpy and adb | **Bundled scrcpy server and bundled adb (Windows)** |
+
+## Download
+
+<p align="center">
+  <a href="https://github.com/NomanRafique01/PhoneFrame-/releases/latest/download/PhoneFrame-Setup-0.1.2.exe">
+    <img src="https://img.shields.io/badge/Download-Windows%20x64%20Installer-00f5d4?style=for-the-badge&logo=windows&logoColor=white&labelColor=1a1a24" alt="Download Windows installer"/>
+  </a>
+  <a href="https://github.com/NomanRafique01/PhoneFrame-/releases/latest">
+    <img src="https://img.shields.io/badge/All%20Releases-GitHub-64748b?style=for-the-badge&logo=github&logoColor=white&labelColor=1a1a24" alt="All releases"/>
+  </a>
+</p>
+
+The latest version is always available on the [releases page](https://github.com/NomanRafique01/PhoneFrame-/releases/latest). The Windows installer (`PhoneFrame-Setup-*.exe`, ~88 MB) bundles the Electron app, the scrcpy server, and Google's platform-tools, so an installed build needs no separate adb or scrcpy setup. The installer is unsigned, so Windows SmartScreen will ask — choose **More info → Run anyway**.
 
 ## Features
 
@@ -64,54 +89,6 @@ An emulator gives you virtual hardware and a heavy IDE-shaped window. A desktop 
 ### Distribution
 - **Bundled backend** — `scrcpy-server-v3.1.jar` and Google's Windows platform-tools ship with the project, so there is no separate scrcpy or Android SDK install on Windows
 - **Self-contained installer** — the NSIS setup bundles the Electron app, server jar, icon, and adb into a per-user install with desktop and Start Menu shortcuts
-
-## Architecture
-
-```
-PhoneFrame/
-├── assets/                       # Embedded binaries, icons & server JARs
-│   ├── platform-tools/           # Bundled Windows adb + USB driver DLLs
-│   ├── phoneframe-icon.png       # App icon source render
-│   ├── phoneframe-icon.ico       # Window / shortcut / installer icon
-│   ├── scrcpy-server-v3.1.jar    # Official scrcpy server v3.1 JAR
-│   └── scrcpy-server.jar         # Fallback server JAR
-├── scripts/                      # Developer utility & diagnostic scripts
-│   └── test_stream_diagnostics.ps1 # Standalone PowerShell stream test
-├── src/
-│   ├── main/                     # Electron Main Process (Node.js)
-│   │   ├── assets.ts             # Dev/packaged asset path resolution
-│   │   ├── adb/                  # ADB device tracking & discovery
-│   │   │   ├── AdbTracker.ts     # Process wrapper for `adb track-devices`
-│   │   │   └── index.ts
-│   │   ├── mirror/               # Scrcpy server lifecycle & socket parser
-│   │   │   ├── ScrcpyServerManager.ts # H.264 stream demuxer & IPC emitter
-│   │   │   └── index.ts
-│   │   └── index.ts              # Electron window lifecycle & IPC handlers
-│   ├── preload/                  # Secure Context Isolation Bridge
-│   │   └── index.ts              # Typed `window.electronAPI` bridge
-│   └── renderer/                 # Frontend React Application (Vite)
-│       ├── components/           # UI Components
-│       │   ├── HUD/              # Floating overlay controls & audio rail
-│       │   ├── icons/            # Zero-slop SVG icons
-│       │   ├── PhoneFrame/       # SVG frame renderer & styling options
-│       │   ├── SetupWizard/      # Step-by-step connection guide
-│       │   ├── VideoCanvas/      # WebCodecs VideoDecoder & canvas renderer
-│       │   └── index.ts          # Unified components barrel export
-│       ├── styles/               # CSS Design Tokens & Reset
-│       │   ├── tokens.css        # Palette & typography tokens
-│       │   └── global.css
-│       ├── types/                # Ambient TypeScript definitions
-│       │   ├── assets.d.ts       # Static asset module declarations
-│       │   └── electron.d.ts     # Preload API interface definitions
-│       ├── App.tsx               # Primary application state orchestrator
-│       └── main.tsx              # React DOM entry point
-├── THIRD_PARTY_LICENSES/         # Open-source third-party licenses
-├── index.html                    # Vite HTML entry
-├── package.json                  # Dependencies, scripts & packaging config
-├── tsconfig.json                 # TypeScript config (Renderer)
-├── tsconfig.node.json            # TypeScript config (Main & Preload)
-└── vite.config.ts                # Vite bundler configuration
-```
 
 ## How Mirroring Works
 
