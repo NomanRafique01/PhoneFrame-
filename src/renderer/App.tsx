@@ -37,14 +37,14 @@ export const App: React.FC = () => {
   const [isPinned, setIsPinned] = useState(true);
   const [scale, setScale] = useState<number>(() => {
     try {
-      const saved = localStorage.getItem("phoneframe_scale_v2") ?? localStorage.getItem("phoneframe_scale");
+      const saved = localStorage.getItem("phoneframe_scale_v3") ?? localStorage.getItem("phoneframe_scale_v2");
       const parsed = saved ? Number(saved) : NaN;
-      if (isNaN(parsed) || parsed === 70 || parsed < 60 || parsed > 140) {
-        return 75;
+      if (isNaN(parsed) || parsed < 60 || parsed > 140) {
+        return 80;
       }
       return parsed;
     } catch {
-      return 75;
+      return 80;
     }
   });
   const [showInspector, setShowInspector] = useState(false);
@@ -60,7 +60,7 @@ export const App: React.FC = () => {
   // Persist scale preference across sessions
   useEffect(() => {
     try {
-      localStorage.setItem("phoneframe_scale_v2", String(scale));
+      localStorage.setItem("phoneframe_scale_v3", String(scale));
     } catch {
       // Ignore storage restrictions
     }
@@ -532,18 +532,15 @@ export const App: React.FC = () => {
           className="app-no-drag"
           style={{
             position: "absolute",
-            top: 0,
-            right: 0,
+            top: "12px",
+            right: "12px",
+            bottom: "12px",
             width: "320px",
             minWidth: "320px",
             maxWidth: "320px",
-            height: "100%",
             backgroundColor: "var(--surface)",
             border: "1px solid var(--border)",
-            borderTop: "none",
-            borderBottom: "none",
-            borderRight: "none",
-            borderRadius: "0",
+            borderRadius: "var(--radius-md)",
             display: "flex",
             flexDirection: "column",
             gap: "var(--space-4)",
