@@ -51,6 +51,7 @@ export const App: React.FC = () => {
   const [isWizardActive, setIsWizardActive] = useState(true);
   const [isHovered, setIsHovered] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
+  const [phoneOffset, setPhoneOffset] = useState({ x: 0, y: 0 });
   const hideTimerRef = useRef<number | null>(null);
   const dragRef = useRef<{ pointerId: number; lastX: number; lastY: number } | null>(null);
 
@@ -158,9 +159,10 @@ export const App: React.FC = () => {
 
   // Click-through when the pointer is off the phone (transparent overlay must not block the desktop).
   // While dragging, the window must keep receiving events so the drag survives the cursor leaving the frame.
+  // While the inspector is open, it must stay clickable, so the window keeps capturing the mouse.
   useEffect(() => {
-    window.electronAPI?.setIgnoreMouseEvents?.(!(isHovered || isDragging));
-  }, [isHovered, isDragging]);
+    window.electronAPI?.setIgnoreMouseEvents?.(!(isHovered || isDragging || showInspector));
+  }, [isHovered, isDragging, showInspector]);
 
   // Window Always-on-top handler
   const handleTogglePin = async () => {
@@ -228,7 +230,9 @@ export const App: React.FC = () => {
     if (dx === 0 && dy === 0) return;
     drag.lastX = e.clientX;
     drag.lastY = e.clientY;
-    window.electronAPI?.moveWindowBy(dx, dy);
+    // Drag the phone inside the fullscreen window so the screen-docked
+    // inspector stays fixed; a transform avoids any layout recalculation.
+    setPhoneOffset((prev) => ({ x: prev.x + dx, y: prev.y + dy }));
   };
 
   const handleDragEnd = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -273,7 +277,11 @@ export const App: React.FC = () => {
       >
         {/* Phone + HUD wrapper (shrink-fits the frame so the HUD can anchor to it) */}
         <div
-          style={{ position: "relative", display: "flex" }}
+          style={{
+            position: "relative",
+            display: "flex",
+            transform: `translate(${phoneOffset.x}px, ${phoneOffset.y}px)`,
+          }}
           onMouseEnter={handleMouseEnter}
           onMouseLeave={handleMouseLeave}
           onPointerDown={handleDragStart}

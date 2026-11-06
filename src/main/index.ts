@@ -132,12 +132,6 @@ ipcMain.handle("window:setIgnoreMouseEvents", (_event, flag: boolean) => {
   mainWindow?.setIgnoreMouseEvents(flag, { forward: true });
 });
 
-ipcMain.handle("window:moveBy", (_event, dx: number, dy: number) => {
-  if (!mainWindow) return;
-  const [x, y] = mainWindow.getPosition();
-  mainWindow.setPosition(x + Math.round(dx), y + Math.round(dy));
-});
-
 // ADB IPC handlers
 ipcMain.handle("adb:getStatus", () => {
   return adbTracker.getStatus();
