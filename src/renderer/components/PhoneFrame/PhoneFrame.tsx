@@ -73,11 +73,11 @@ export const PhoneFrame: React.FC<PhoneFrameProps> = ({ options, children }) => 
         aria-hidden="true"
       >
         <defs>
-          {/* Subtle directional bevel gradient */}
+          {/* Subtle directional bevel gradient (fully opaque — no desktop bleed-through) */}
           <linearGradient id="chassisGradient" x1="0%" y1="0%" x2="100%" y2="100%">
             <stop offset="0%" stopColor={colorDef.hex} stopOpacity="1" />
             <stop offset="50%" stopColor={colorDef.hex} stopOpacity="1" />
-            <stop offset="100%" stopColor={colorDef.borderHex} stopOpacity="0.8" />
+            <stop offset="100%" stopColor={colorDef.borderHex} stopOpacity="1" />
           </linearGradient>
 
           {/* Mask to cut out the inner screen hole so drag area is bezel-only */}
@@ -107,7 +107,7 @@ export const PhoneFrame: React.FC<PhoneFrameProps> = ({ options, children }) => 
               rx={1.5}
               ry={1.5}
               fill={colorDef.borderHex}
-              opacity="0.9"
+              opacity="1"
             />
             {/* Volume Up/Down Rocker */}
             <rect
@@ -118,7 +118,7 @@ export const PhoneFrame: React.FC<PhoneFrameProps> = ({ options, children }) => 
               rx={1.5}
               ry={1.5}
               fill={colorDef.borderHex}
-              opacity="0.9"
+              opacity="1"
             />
           </g>
         )}
