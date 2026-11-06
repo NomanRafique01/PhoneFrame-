@@ -15,9 +15,6 @@ export const VideoCanvas: React.FC<VideoCanvasProps> = ({ isStreaming }) => {
   const hasReceivedFramesRef = useRef<boolean>(false);
 
   const [hasReceivedFrames, setHasReceivedFrames] = useState<boolean>(false);
-  const [fps, setFps] = useState<number>(0);
-  const [streamResolution, setStreamResolution] = useState<{ width: number; height: number } | null>(null);
-  const frameCounterRef = useRef<number>(0);
 
   // Initialize or reconfigure WebCodecs VideoDecoder
   const setupDecoder = (codecToUse: string) => {
@@ -50,13 +47,11 @@ export const VideoCanvas: React.FC<VideoCanvasProps> = ({ isStreaming }) => {
           if (canvas.width !== w || canvas.height !== h) {
             canvas.width = w;
             canvas.height = h;
-            setStreamResolution({ width: w, height: h });
           }
 
           ctx.drawImage(frame, 0, 0, w, h);
           frame.close();
 
-          frameCounterRef.current += 1;
           if (!hasReceivedFramesRef.current) {
             hasReceivedFramesRef.current = true;
             setHasReceivedFrames(true);
@@ -85,13 +80,7 @@ export const VideoCanvas: React.FC<VideoCanvasProps> = ({ isStreaming }) => {
   useEffect(() => {
     setupDecoder(currentCodecRef.current);
 
-    const fpsInterval = setInterval(() => {
-      setFps(frameCounterRef.current);
-      frameCounterRef.current = 0;
-    }, 1000);
-
     return () => {
-      clearInterval(fpsInterval);
       if (decoderRef.current && decoderRef.current.state !== "closed") {
         try {
           decoderRef.current.close();
@@ -111,7 +100,6 @@ export const VideoCanvas: React.FC<VideoCanvasProps> = ({ isStreaming }) => {
     const unInit = window.electronAPI.onVideoInit?.((meta) => {
       console.log("[VideoCanvas] Received video:init:", meta);
       if (meta.width && meta.height) {
-        setStreamResolution({ width: meta.width, height: meta.height });
         if (canvasRef.current) {
           canvasRef.current.width = meta.width;
           canvasRef.current.height = meta.height;
@@ -132,9 +120,10 @@ export const VideoCanvas: React.FC<VideoCanvasProps> = ({ isStreaming }) => {
     };
   }, []);
 
-  // Listen for framed H.264 video chunks
+  // Listen for framed H.264 video chunks. Subscribed for the component's whole
+  // life (it mounts during "starting") so no config/keyframe is missed.
   useEffect(() => {
-    if (!window.electronAPI || !isStreaming) return;
+    if (!window.electronAPI) return;
 
     const onVideoChunk = (raw: Uint8Array) => {
       const decoder = decoderRef.current;
@@ -166,7 +155,7 @@ export const VideoCanvas: React.FC<VideoCanvasProps> = ({ isStreaming }) => {
     return () => {
       unsubscribe?.();
     };
-  }, [isStreaming]);
+  }, []);
 
   return (
     <div
@@ -192,28 +181,29 @@ export const VideoCanvas: React.FC<VideoCanvasProps> = ({ isStreaming }) => {
         }}
       />
 
-      {/* Latency & Telemetry HUD Overlay */}
-      {hasReceivedFrames && (
+      {/* Startup / waiting state: shown until the first decoded frame lands */}
+      {!hasReceivedFrames && (
         <div
           className="mono-data"
           style={{
             position: "absolute",
-            bottom: "8px",
-            right: "12px",
-            fontSize: "10px",
-            color: "rgba(255, 255, 255, 0.65)",
+            inset: 0,
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: "10px",
+            fontSize: "11px",
+            letterSpacing: "0.08em",
+            color: "var(--mist-400)",
             pointerEvents: "none",
-            backgroundColor: "rgba(0, 0, 0, 0.65)",
-            backdropFilter: "blur(4px)",
-            padding: "2px 8px",
-            borderRadius: "4px",
-            border: "1px solid rgba(255, 255, 255, 0.1)",
-            zIndex: 30,
           }}
         >
-          {fps} FPS {streamResolution ? `• ${streamResolution.width}×${streamResolution.height} ` : ""}• WebCodecs GPU
+          <span className="stream-starting-dot" />
+          <span>{isStreaming ? "WAITING FOR STREAM…" : "STARTING STREAM…"}</span>
         </div>
       )}
+
     </div>
   );
 };

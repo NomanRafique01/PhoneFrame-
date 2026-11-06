@@ -33,6 +33,14 @@ export const App: React.FC = () => {
 
   const [mirrorState, setMirrorState] = useState<MirrorState>("stopped");
   const [mirrorError, setMirrorError] = useState<string | null>(null);
+  const [sessionNotice, setSessionNotice] = useState<string | null>(null);
+  const prevMirrorStateRef = useRef<MirrorState>("stopped");
+  const lastAdbStatusRef = useRef<AdbStatusPayload>({
+    state: "no-device",
+    devices: [],
+    activeDevice: null,
+  });
+  const noticeTimerRef = useRef<number | null>(null);
 
   const [isPinned, setIsPinned] = useState(true);
   const [scale, setScale] = useState<number>(() => {
@@ -56,6 +64,7 @@ export const App: React.FC = () => {
   const hideTimerRef = useRef<number | null>(null);
   const tapRef = useRef<{ pointerId: number; x: number; y: number; t: number } | null>(null);
   const dragRef = useRef<{ pointerId: number; lastX: number; lastY: number } | null>(null);
+  const startInFlightRef = useRef(false);
   const stageRef = useRef<HTMLDivElement>(null);
   const phoneWrapRef = useRef<HTMLDivElement>(null);
 
@@ -73,13 +82,17 @@ export const App: React.FC = () => {
     // Initial ADB fetch
     if (window.electronAPI?.getAdbStatus) {
       window.electronAPI.getAdbStatus().then((status) => {
-        if (status) setAdbStatus(status);
+        if (status) {
+          lastAdbStatusRef.current = status;
+          setAdbStatus(status);
+        }
       });
     }
 
     // ADB event listener
     if (window.electronAPI?.onAdbStatusChange) {
       const unsubscribeAdb = window.electronAPI.onAdbStatusChange((status) => {
+        lastAdbStatusRef.current = status;
         setAdbStatus(status);
 
         // Auto-adapt aspect ratio to connected device
@@ -103,11 +116,26 @@ export const App: React.FC = () => {
 
       // Mirror state listener
       const unsubscribeMirror = window.electronAPI?.onMirrorStateChange?.((payload) => {
+        const wasActive =
+          prevMirrorStateRef.current === "running" || prevMirrorStateRef.current === "starting";
+        const isEnded = payload.state === "stopped" || payload.state === "error";
+        prevMirrorStateRef.current = payload.state;
+
         setMirrorState(payload.state);
-        if (payload.error) {
-          setMirrorError(payload.error);
-        } else {
-          setMirrorError(null);
+        setMirrorError(payload.error ?? null);
+
+        // Any stream termination — manual stop, unplug, scrcpy crash — returns
+        // to the connection screen. ADB detection keeps running underneath.
+        if (wasActive && isEnded) {
+          setIsWizardActive(true);
+          const stillConnected = lastAdbStatusRef.current.state === "device";
+          setSessionNotice(
+            payload.state === "error" || !stillConnected
+              ? "Phone disconnected. Waiting for a new connection…"
+              : "Stream stopped. Device is still connected."
+          );
+          if (noticeTimerRef.current) window.clearTimeout(noticeTimerRef.current);
+          noticeTimerRef.current = window.setTimeout(() => setSessionNotice(null), 5000);
         }
       });
 
@@ -135,6 +163,7 @@ export const App: React.FC = () => {
         unsubscribeAdb();
         unsubscribeMirror?.();
         unsubscribeVideoInit?.();
+        if (noticeTimerRef.current) window.clearTimeout(noticeTimerRef.current);
       };
     }
   }, []);
@@ -198,9 +227,18 @@ export const App: React.FC = () => {
   };
 
   const handleStartMirror = async () => {
-    if (!adbStatus.activeDevice?.serial) return;
+    const serial = adbStatus.activeDevice?.serial;
+    if (!serial) return;
+    // One click = one startup. The ref stops rapid double-clicks before the
+    // "starting" state has rendered; the state check stops later duplicates.
+    if (startInFlightRef.current || mirrorState === "starting" || mirrorState === "running") return;
+    startInFlightRef.current = true;
     setIsWizardActive(false);
-    await window.electronAPI?.startMirror(adbStatus.activeDevice.serial);
+    try {
+      await window.electronAPI?.startMirror(serial);
+    } finally {
+      startInFlightRef.current = false;
+    }
   };
 
   const handleStopMirror = async () => {
@@ -286,6 +324,7 @@ export const App: React.FC = () => {
   const activeDevice = adbStatus.activeDevice;
   const isDeviceConnected = adbStatus.state === "device";
   const isStreaming = mirrorState === "running";
+  const isStarting = mirrorState === "starting";
   // Shared visibility for the drawer: phone hover (phone + HUD are one wrapper,
   // so moving between them never flickers), drag, inspector, or touch toggle
   const hudVisible = isHovered || showInspector || isDragging || touchHudOpen;
@@ -409,6 +448,7 @@ export const App: React.FC = () => {
               {isWizardActive ? (
                 <SetupWizard
                   adbStatus={adbStatus}
+                  notice={sessionNotice}
                   onComplete={() => {
                     setIsWizardActive(false);
                     if (isDeviceConnected) {
@@ -417,8 +457,9 @@ export const App: React.FC = () => {
                   }}
                   onDismiss={() => setIsWizardActive(false)}
                 />
-              ) : isStreaming ? (
-                /* Real Video Stream Canvas with WebCodecs GPU decoding */
+              ) : isStreaming || isStarting ? (
+                /* Mounted as soon as startup begins so the first codec config
+                   and keyframe are not missed while connecting */
                 <VideoCanvas width={screenWidth} height={screenHeight} isStreaming={isStreaming} />
               ) : (
                 /* Standby / Ready View */
@@ -482,6 +523,7 @@ export const App: React.FC = () => {
                     {isDeviceConnected && (
                       <button
                         onClick={handleStartMirror}
+                        disabled={isStarting}
                         style={{
                           padding: "6px 14px",
                           borderRadius: "var(--radius-sm)",
@@ -490,9 +532,11 @@ export const App: React.FC = () => {
                           fontSize: "11px",
                           fontWeight: 600,
                           color: "#06141B",
+                          opacity: isStarting ? 0.6 : 1,
+                          cursor: isStarting ? "not-allowed" : "pointer",
                         }}
                       >
-                        Start Mirroring
+                        {isStarting ? "Starting…" : "Start Stream"}
                       </button>
                     )}
 
@@ -676,6 +720,7 @@ export const App: React.FC = () => {
                 {!isStreaming ? (
                   <button
                     onClick={handleStartMirror}
+                    disabled={isStarting}
                     style={{
                       flex: 1,
                       padding: "6px",
@@ -684,9 +729,11 @@ export const App: React.FC = () => {
                       border: "1px solid var(--border)",
                       fontSize: "11px",
                       color: "var(--mist-200)",
+                      opacity: isStarting ? 0.6 : 1,
+                      cursor: isStarting ? "not-allowed" : "pointer",
                     }}
                   >
-                    Start Stream
+                    {isStarting ? "Starting…" : "Start Stream"}
                   </button>
                 ) : (
                   <button

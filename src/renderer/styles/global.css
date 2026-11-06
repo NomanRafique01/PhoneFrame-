@@ -98,10 +98,34 @@ button:focus-visible {
   background: var(--ink-600);
 }
 
+/* Stream startup indicator */
+.stream-starting-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: var(--success);
+  animation: stream-starting-pulse 1.1s ease-in-out infinite;
+}
+
+@keyframes stream-starting-pulse {
+  0%, 100% {
+    opacity: 0.3;
+    transform: scale(0.85);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
 /* Respect reduced-motion: drawer appears/disappears without travel */
 @media (prefers-reduced-motion: reduce) {
   .hud-drawer {
     transition: opacity 120ms linear !important;
     transform: translateY(-50%) !important;
+  }
+  .stream-starting-dot {
+    animation: none;
+    opacity: 1;
   }
 }

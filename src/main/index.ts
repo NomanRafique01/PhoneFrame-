@@ -1,6 +1,6 @@
 import { app, BrowserWindow, ipcMain, screen } from "electron";
 import * as path from "node:path";
-import { AdbTracker } from "./adb/AdbTracker";
+import { AdbTracker, type AdbStatusPayload } from "./adb/AdbTracker";
 import { ScrcpyServerManager } from "./mirror/ScrcpyServerManager";
 
 let mainWindow: BrowserWindow | null = null;
@@ -84,8 +84,28 @@ app.whenReady().then(async () => {
   await adbTracker.start();
 
   // Wire up ADB status → renderer (bound once after window exists)
-  adbTracker.on("status-changed", (status) => {
-    mainWindow?.webContents.send("adb:status-changed", status);
+  adbTracker.on("status-changed", (status: AdbStatusPayload) => {
+    if (mainWindow?.webContents && !mainWindow.webContents.isDestroyed()) {
+      mainWindow.webContents.send("adb:status-changed", status);
+    }
+
+    // If the device behind the active stream disappears (unplug, ADB loss,
+    // authorization revoked), tear the session down instead of waiting for
+    // a socket error. ADB tracking itself keeps running.
+    if (!mirrorManager) return;
+    const mirrorState = mirrorManager.getState();
+    if (mirrorState !== "starting" && mirrorState !== "running") return;
+
+    const serial = mirrorManager.getActiveSerial();
+    if (!serial) return;
+
+    const stillOnline = status.devices.some(
+      (device) => device.serial === serial && device.state === "device"
+    );
+    if (!stillOnline) {
+      console.log(`[main] Device ${serial} is no longer online; stopping mirror.`);
+      void mirrorManager.stop();
+    }
   });
 
   // Wire up mirror events → renderer (bound once after mirrorManager + window exist)
@@ -173,8 +193,13 @@ ipcMain.handle("adb:getScreenSize", async (_event, serial: string) => {
 // Mirroring IPC handlers
 ipcMain.handle("mirror:start", async (_event, serial: string) => {
   if (!mirrorManager) return false;
-  await mirrorManager.start({ serial });
-  return true;
+  try {
+    // Resolves only once the stream is live (or the start failed).
+    await mirrorManager.start({ serial });
+  } catch (err) {
+    console.error("[main] mirror:start failed:", err);
+  }
+  return mirrorManager.getState() === "running";
 });
 
 ipcMain.handle("mirror:stop", async () => {

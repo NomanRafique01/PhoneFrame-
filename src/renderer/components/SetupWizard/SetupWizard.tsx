@@ -23,11 +23,12 @@ interface WizardStep {
 
 interface SetupWizardProps {
   adbStatus?: AdbStatusPayload;
+  notice?: string | null;
   onComplete?: () => void;
   onDismiss?: () => void;
 }
 
-export const SetupWizard: React.FC<SetupWizardProps> = ({ adbStatus, onComplete, onDismiss }) => {
+export const SetupWizard: React.FC<SetupWizardProps> = ({ adbStatus, notice, onComplete, onDismiss }) => {
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
   const [tapCounter, setTapCounter] = useState(0);
 
@@ -41,6 +42,9 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({ adbStatus, onComplete,
     } else if (adbStatus.state === "device") {
       // Device is authorized and online
       setCurrentStepIndex(4); // Step 5: Ready
+    } else {
+      // Back to the waiting screen: never keep stale "connected" steps
+      setCurrentStepIndex(0); // Step 1: Connect USB
     }
   }, [adbStatus?.state]);
 
@@ -417,10 +421,49 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({ adbStatus, onComplete,
             fontSize: "11px",
           }}
         >
-          {currentStep.id === "ready" ? "Start Mirroring" : "Next Step"}
+          {currentStep.id === "ready" ? "Start Stream" : "Next Step"}
           <ChevronRightIcon size={14} />
         </button>
       </div>
+
+      {/* Brief session notice (absolute so showing/hiding never shifts layout) */}
+      {notice && (
+        <div
+          className="mono-data"
+          style={{
+            position: "absolute",
+            left: "var(--space-4)",
+            right: "var(--space-4)",
+            bottom: "104px",
+            zIndex: 10,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: "8px",
+            padding: "8px 10px",
+            borderRadius: "var(--radius-sm)",
+            border: "1px solid var(--border)",
+            backgroundColor: "rgba(6, 20, 27, 0.92)",
+            backdropFilter: "blur(6px)",
+            fontSize: "10px",
+            lineHeight: 1.4,
+            color: "var(--mist-400)",
+            textAlign: "center",
+            pointerEvents: "none",
+          }}
+        >
+          <span
+            style={{
+              width: "5px",
+              height: "5px",
+              borderRadius: "50%",
+              backgroundColor: "var(--warning)",
+              flexShrink: 0,
+            }}
+          />
+          {notice}
+        </div>
+      )}
     </div>
   );
 };
