@@ -66,6 +66,9 @@ export interface FloatingPhoneAPI {
   onVideoChunk: (callback: (chunk: Uint8Array) => void) => () => void;
   onVideoInit?: (callback: (meta: { codec: string; width: number; height: number }) => void) => () => void;
   onVideoCodec?: (callback: (codec: string) => void) => () => void;
+  onAudioInit?: (callback: (meta: { codec: string }) => void) => () => void;
+  onAudioChunk?: (callback: (chunk: Uint8Array) => void) => () => void;
+  setAudioSettings?: (settings: { muted: boolean; level: number }) => void;
 
   // Screen input (pointer, scroll, keyboard)
   sendControl: (input: ScreenControlInput) => void;

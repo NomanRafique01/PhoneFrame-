@@ -127,6 +127,18 @@ app.whenReady().then(async () => {
     }
   });
 
+  mirrorManager.on("audio-init", (meta) => {
+    if (mainWindow?.webContents && !mainWindow.webContents.isDestroyed()) {
+      mainWindow.webContents.send("audio:init", meta);
+    }
+  });
+
+  mirrorManager.on("audio-chunk", (chunk: Buffer) => {
+    if (mainWindow?.webContents && !mainWindow.webContents.isDestroyed()) {
+      mainWindow.webContents.send("audio:chunk", chunk);
+    }
+  });
+
   mirrorManager.on("state-changed", (state: string, err?: string) => {
     if (mainWindow?.webContents && !mainWindow.webContents.isDestroyed()) {
       mainWindow.webContents.send("mirror:state-changed", { state, error: err });
@@ -215,4 +227,14 @@ ipcMain.handle("mirror:getState", () => {
 // High-frequency pointer/scroll/key stream: fire-and-forget to keep input latency low.
 ipcMain.on("mirror:control", (_event, input: unknown) => {
   mirrorManager?.injectInput(input);
+});
+
+// HUD audio state: the renderer owns the desktop gain, the main process owns
+// the phone's real media volume (exclusive routing).
+ipcMain.on("audio:settings", (_event, settings: { muted?: boolean; level?: number }) => {
+  if (!settings || typeof settings !== "object") return;
+  mirrorManager?.setDesktopAudio(
+    Boolean(settings.muted),
+    typeof settings.level === "number" ? settings.level : 1
+  );
 });

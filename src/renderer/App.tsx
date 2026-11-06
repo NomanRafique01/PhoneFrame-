@@ -9,6 +9,7 @@ import { FloatingHUD } from "./components/HUD/FloatingHUD";
 import { SetupWizard } from "./components/SetupWizard";
 import { VideoCanvas } from "./components/VideoCanvas/VideoCanvas";
 import { ChevronRightIcon, SmartphoneIcon } from "./components/icons";
+import { usePhoneAudio } from "./audio/usePhoneAudio";
 import type { AdbStatusPayload, MirrorState } from "./types/electron";
 
 // Drag mode requires a deliberate hold so a quick tap or a small wobble never
@@ -48,6 +49,23 @@ export const App: React.FC = () => {
   const noticeTimerRef = useRef<number | null>(null);
 
   const [isPinned, setIsPinned] = useState(true);
+  const [audioMuted, setAudioMuted] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem("phoneframe_audio_muted_v1") === "1";
+    } catch {
+      return false;
+    }
+  });
+  const [audioVolume, setAudioVolume] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem("phoneframe_audio_volume_v1");
+      if (saved === null) return 1;
+      const parsed = Number(saved);
+      return Number.isFinite(parsed) && parsed >= 0 && parsed <= 1 ? parsed : 1;
+    } catch {
+      return 1;
+    }
+  });
   const [scale, setScale] = useState<number>(() => {
     try {
       const saved = localStorage.getItem("phoneframe_scale_v4") ?? localStorage.getItem("phoneframe_scale_v3");
@@ -98,6 +116,26 @@ export const App: React.FC = () => {
       // Ignore storage restrictions
     }
   }, [scale]);
+
+  // Persist the PC audio toggle across sessions
+  useEffect(() => {
+    try {
+      localStorage.setItem("phoneframe_audio_muted_v1", audioMuted ? "1" : "0");
+    } catch {
+      // Ignore storage restrictions
+    }
+  }, [audioMuted]);
+
+  // Persist the PC audio level across sessions
+  useEffect(() => {
+    try {
+      localStorage.setItem("phoneframe_audio_volume_v1", String(audioVolume));
+    } catch {
+      // Ignore storage restrictions
+    }
+  }, [audioVolume]);
+
+  usePhoneAudio(audioMuted, audioVolume);
 
   // Subscribe to real-time ADB status events & mirror state
   useEffect(() => {
@@ -527,6 +565,10 @@ export const App: React.FC = () => {
               isPinned={isPinned}
               onTogglePin={handleTogglePin}
               onRotate={handleRotate}
+              audioMuted={audioMuted}
+              onToggleAudio={() => setAudioMuted((muted) => !muted)}
+              audioVolume={audioVolume}
+              onAudioVolumeChange={setAudioVolume}
               showInspector={showInspector}
               onToggleInspector={() => setShowInspector(!showInspector)}
               onMinimize={handleMinimize}

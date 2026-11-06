@@ -11,6 +11,8 @@ const STREAM_START_TIMEOUT_MS = 12000;
 const CONNECT_RETRY_MS = 200;
 const ADB_COMMAND_TIMEOUT_MS = 8000;
 const PUSH_TIMEOUT_MS = 30000;
+const VOLUME_DEBOUNCE_MS = 60;
+const STREAM_MUSIC = "3";
 
 export interface MirrorOptions {
   serial: string;
@@ -27,6 +29,10 @@ export interface VideoInitPayload {
   height: number;
 }
 
+export interface AudioInitPayload {
+  codec: string;
+}
+
 interface PendingReady {
   session: number;
   resolve: () => void;
@@ -41,11 +47,14 @@ export class ScrcpyServerManager extends EventEmitter {
   private state: MirrorState = "stopped";
   private serverProcess: ChildProcessWithoutNullStreams | null = null;
   private videoSocket: net.Socket | null = null;
+  private audioSocket: net.Socket | null = null;
   private controlSocket: net.Socket | null = null;
   private controlConnectStarted = false;
+  private audioConnectStarted = false;
   private activeSerial: string | null = null;
   private localPort: number = 0;
   private scid: string = "";
+  private deviceSdk: number | null = null;
 
   // Every start/stop gets a new session id. Async continuations and process /
   // socket events from an older session are ignored, so a superseded startup
@@ -64,6 +73,26 @@ export class ScrcpyServerManager extends EventEmitter {
   private videoWidth: number = 0;
   private videoHeight: number = 0;
   private codecId: string = "h264";
+
+  // Audio stream parser state
+  private audioRxBuf: Buffer = Buffer.alloc(0);
+  private audioHeaderParsed: boolean = false;
+  private audioDisabled: boolean = false;
+  private audioCodec: string = "opus";
+
+  // Renderer audio settings. With playback capture the phone keeps rendering
+  // its own audio (audio_dup), so exclusive routing is done by moving the
+  // phone's real STREAM_MUSIC volume: 0 while the desktop is listening, the
+  // slider level while the desktop is muted.
+  private desiredAudioMuted: boolean = false;
+  private desiredAudioLevel: number = 1;
+  private phoneVolumeMax: number | null = null;
+  private phoneOriginalVolume: number | null = null;
+  private appliedPhoneVolume: number | null = null;
+  private pendingPhoneVolume: number | null = null;
+  private volumeTimer: NodeJS.Timeout | null = null;
+  private volumeGeneration: number = 0;
+  private volumeChain: Promise<void> = Promise.resolve();
 
   constructor(adbPath: string) {
     super();
@@ -125,9 +154,16 @@ export class ScrcpyServerManager extends EventEmitter {
     const session = this.sessionId;
 
     this.teardown();
+    // Restore the phone's own media volume before this session imposes its
+    // routing, otherwise a superseded session's "desktop is listening" mute
+    // would leak into the new one.
+    await this.restorePhoneVolume(previousSerial);
+    if (session !== this.sessionId) return;
+
     this.activeSerial = serial;
     this.localPort = 0;
     this.scid = "";
+    this.deviceSdk = null;
     this.state = "starting";
     this.emit("state-changed", this.state);
 
@@ -151,6 +187,32 @@ export class ScrcpyServerManager extends EventEmitter {
 
       await this.validateDevice(serial);
       this.assertCurrent(session);
+
+      // Android 13+ can capture playback while keeping the speaker active
+      // (audio_source=playback + audio_dup). Older devices use the default
+      // output capture, which takes over the device's audio route.
+      this.deviceSdk = await this.getDeviceSdk(serial);
+      this.assertCurrent(session);
+
+      // Playback capture keeps the phone rendering its own audio, so the
+      // phone's real media volume is the routing switch. Capture the user's
+      // level now so it can be restored when mirroring ends.
+      if (this.deviceSdk !== null && this.deviceSdk >= 33) {
+        // Wait for any queued volume write from a previous session first, so
+        // the captured "original" is never that session's routing value.
+        await this.volumeChain;
+        this.assertCurrent(session);
+        const volume = await this.readStreamMusicVolume(serial);
+        this.assertCurrent(session);
+        if (volume) {
+          this.phoneVolumeMax = volume.max;
+          this.phoneOriginalVolume = volume.current;
+          this.appliedPhoneVolume = volume.current;
+          console.log(
+            `[ScrcpyServerManager] Phone media volume ${volume.current}/${volume.max} (restored on stop).`
+          );
+        }
+      }
 
       await this.ensureServerJar(serial, jarPath);
       this.assertCurrent(session);
@@ -216,6 +278,19 @@ export class ScrcpyServerManager extends EventEmitter {
     }
   }
 
+  private async getDeviceSdk(serial: string): Promise<number | null> {
+    try {
+      const output = await this.execAdb(
+        ["-s", serial, "shell", "getprop", "ro.build.version.sdk"],
+        4000
+      );
+      const sdk = Number.parseInt(output, 10);
+      return Number.isInteger(sdk) ? sdk : null;
+    } catch {
+      return null;
+    }
+  }
+
   private async ensureServerJar(serial: string, jarPath: string): Promise<void> {
     const localSize = fs.statSync(jarPath).size;
     try {
@@ -248,7 +323,8 @@ export class ScrcpyServerManager extends EventEmitter {
       SERVER_VERSION,
       `scid=${this.scid}`,
       "tunnel_forward=true",
-      "audio=false",
+      "audio=true",
+      "audio_codec=opus",
       "control=true",
       "send_device_meta=false",
       `max_size=${maxSize}`,
@@ -257,6 +333,12 @@ export class ScrcpyServerManager extends EventEmitter {
 
     if (options.maxFps) {
       serverArgs.push(`max_fps=${options.maxFps}`);
+    }
+
+    // Keep the device speaker playing while its audio is captured, so muting
+    // on the desktop falls back to the phone instead of silencing both ends.
+    if (this.deviceSdk !== null && this.deviceSdk >= 33) {
+      serverArgs.push("audio_source=playback", "audio_dup=true");
     }
 
     const process = spawn(this.adbPath, serverArgs, { windowsHide: true });
@@ -340,11 +422,11 @@ export class ScrcpyServerManager extends EventEmitter {
     socket.on("data", (chunk: Buffer) => {
       if (session !== this.sessionId) return;
       // The first byte is the server's dummy byte, written right after it
-      // accepts the video socket and right before it waits for control.
+      // accepts the video socket and right before it waits for audio.
       const isFirstData = !gotData;
       gotData = true;
       this.rxBuf = Buffer.concat([this.rxBuf, chunk]);
-      if (isFirstData) this.connectControl(session);
+      if (isFirstData) this.connectAudio(session);
       this.parseStream(session);
     });
 
@@ -374,10 +456,64 @@ export class ScrcpyServerManager extends EventEmitter {
   }
 
   /**
+   * The server accepts its sockets in video → audio → control order, so the
+   * audio socket must be opened before the control socket; otherwise the
+   * server would treat the control connection as its audio channel. Audio is
+   * best-effort: a failure here must never stop video or control from coming up.
+   */
+  private connectAudio(session: number): void {
+    if (session !== this.sessionId) return;
+    if (this.audioSocket || this.audioConnectStarted) return;
+    if (this.localPort <= 0) {
+      this.connectControl(session);
+      return;
+    }
+
+    this.audioConnectStarted = true;
+    const socket = net.createConnection({ host: "127.0.0.1", port: this.localPort });
+    this.audioSocket = socket;
+    socket.setNoDelay(true);
+
+    let controlStarted = false;
+    const continueToControl = () => {
+      if (controlStarted) return;
+      controlStarted = true;
+      this.connectControl(session);
+    };
+
+    socket.once("connect", () => {
+      if (session !== this.sessionId) return;
+      console.log("[ScrcpyServerManager] Audio channel connected.");
+      continueToControl();
+    });
+
+    socket.on("data", (chunk: Buffer) => {
+      if (session !== this.sessionId) return;
+      this.audioRxBuf = Buffer.concat([this.audioRxBuf, chunk]);
+      this.parseAudio(session);
+    });
+
+    socket.on("error", (err) => {
+      if (this.audioSocket === socket) this.audioSocket = null;
+      if (session !== this.sessionId) return;
+      console.warn("[ScrcpyServerManager] Audio channel unavailable:", err.message);
+      // No audio means nothing to route: give the phone its speaker back.
+      void this.restorePhoneVolume(this.activeSerial);
+      continueToControl();
+    });
+
+    socket.on("close", () => {
+      if (this.audioSocket === socket) this.audioSocket = null;
+      if (session !== this.sessionId) return;
+      void this.restorePhoneVolume(this.activeSerial);
+      continueToControl();
+    });
+  }
+
+  /**
    * scrcpy accepts video first, writes the dummy byte, then blocks accepting
-   * the control connection before it starts encoding. Receiving the dummy
-   * byte therefore means the server is waiting for this second connection,
-   * which must ride the same ADB forward as the video socket.
+   * the audio connection and finally the control connection before it starts
+   * encoding. Both extra sockets must ride the same ADB forward as video.
    */
   private connectControl(session: number): void {
     if (session !== this.sessionId) return;
@@ -410,6 +546,59 @@ export class ScrcpyServerManager extends EventEmitter {
     });
   }
 
+  /**
+   * Audio stream layout (scrcpy 3.x):
+   *   4-byte codec id ("opus"), or a disable code (0 = no audio capture on
+   *   this device, 1 = configuration error); video keeps running either way.
+   *   12-byte frame header (flags/PTS, size) followed by one Opus packet.
+   *   Config packets carry the OpusHead header, which raw-packet WebCodecs
+   *   decoders do not need.
+   */
+  private parseAudio(session: number): void {
+    if (session !== this.sessionId) return;
+
+    if (!this.audioHeaderParsed && !this.audioDisabled) {
+      if (this.audioRxBuf.length < 4) return;
+
+      const codecBytes = this.audioRxBuf.subarray(0, 4);
+      const code = codecBytes.readUInt32BE(0);
+      this.audioRxBuf = this.audioRxBuf.subarray(4);
+
+      if (code === 0 || code === 1) {
+        this.audioDisabled = true;
+        this.audioRxBuf = Buffer.alloc(0);
+        console.log(
+          `[ScrcpyServerManager] Device did not provide audio (code ${code}); continuing video-only.`
+        );
+        // Nothing is captured, so muting the phone would silence both ends.
+        void this.restorePhoneVolume(this.activeSerial);
+        return;
+      }
+
+      this.audioCodec = codecBytes.toString("ascii");
+      this.audioHeaderParsed = true;
+      console.log(`[ScrcpyServerManager] Audio stream initialized: codec=${this.audioCodec}`);
+      this.emit("audio-init", { codec: this.audioCodec });
+    }
+
+    if (this.audioDisabled) return;
+
+    while (this.audioRxBuf.length >= 12) {
+      const flagsByte = this.audioRxBuf[0];
+      const isConfig = (flagsByte & 0x80) !== 0;
+      const packetSize = this.audioRxBuf.readUInt32BE(8);
+
+      if (this.audioRxBuf.length < 12 + packetSize) break;
+
+      const payload = this.audioRxBuf.subarray(12, 12 + packetSize);
+      this.audioRxBuf = this.audioRxBuf.subarray(12 + packetSize);
+
+      if (isConfig) continue;
+
+      this.emit("audio-chunk", Buffer.from(payload));
+    }
+  }
+
   /** Queues one pointer/keyboard event on the control channel. */
   public injectInput(input: unknown): boolean {
     if (this.state !== "running") return false;
@@ -421,6 +610,141 @@ export class ScrcpyServerManager extends EventEmitter {
 
     socket.write(message);
     return true;
+  }
+
+  /**
+   * Applies the HUD audio state. The desktop player mutes itself; this side
+   * owns the phone's real media volume so the sound only comes out of the
+   * selected end:
+   *   desktop on  → phone STREAM_MUSIC = 0 (capture still gets full audio)
+   *   desktop off → phone STREAM_MUSIC = level × max
+   */
+  public setDesktopAudio(muted: boolean, level: number): void {
+    this.desiredAudioMuted = muted;
+    this.desiredAudioLevel = Number.isFinite(level) ? Math.min(1, Math.max(0, level)) : 1;
+    this.applyAudioRouting();
+  }
+
+  private applyAudioRouting(): void {
+    if (this.phoneVolumeMax === null) return;
+    if (this.state !== "starting" && this.state !== "running") return;
+
+    const index = this.desiredAudioMuted
+      ? Math.round(this.desiredAudioLevel * this.phoneVolumeMax)
+      : 0;
+    this.queuePhoneVolume(index);
+  }
+
+  private queuePhoneVolume(index: number): void {
+    if (this.pendingPhoneVolume === index) return;
+    this.pendingPhoneVolume = index;
+
+    if (this.volumeTimer) clearTimeout(this.volumeTimer);
+    const generation = this.volumeGeneration;
+    this.volumeTimer = setTimeout(() => {
+      this.volumeTimer = null;
+      void this.flushPhoneVolume(generation);
+    }, VOLUME_DEBOUNCE_MS);
+  }
+
+  private async flushPhoneVolume(generation: number): Promise<void> {
+    const target = this.pendingPhoneVolume;
+    const serial = this.activeSerial;
+    if (target === null || !serial) return;
+    if (generation !== this.volumeGeneration) return;
+    if (target === this.appliedPhoneVolume) return;
+
+    this.pendingPhoneVolume = null;
+    try {
+      await this.enqueueVolumeWrite(serial, target);
+      if (generation === this.volumeGeneration) this.appliedPhoneVolume = target;
+    } catch (err) {
+      console.warn(`[ScrcpyServerManager] Phone volume update failed: ${toMessage(err)}`);
+    }
+  }
+
+  /** Hands the phone its original media volume back. */
+  private async restorePhoneVolume(serial: string | null): Promise<void> {
+    this.volumeGeneration += 1;
+    if (this.volumeTimer) {
+      clearTimeout(this.volumeTimer);
+      this.volumeTimer = null;
+    }
+    this.pendingPhoneVolume = null;
+
+    const original = this.phoneOriginalVolume;
+    this.phoneOriginalVolume = null;
+    this.phoneVolumeMax = null;
+    this.appliedPhoneVolume = null;
+
+    if (!serial || original === null) return;
+    try {
+      await this.enqueueVolumeWrite(serial, original);
+      console.log(`[ScrcpyServerManager] Phone media volume restored to ${original}.`);
+    } catch {
+      // Device unplugged or volume service unavailable – nothing else to do.
+    }
+  }
+
+  /** Serializes ADB volume writes so a restore can never land before a mute. */
+  private enqueueVolumeWrite(serial: string, index: number): Promise<void> {
+    const run = this.volumeChain.then(() => this.writeStreamMusicVolume(serial, index));
+    this.volumeChain = run.catch(() => {});
+    return run;
+  }
+
+  private writeStreamMusicVolume(serial: string, index: number): Promise<void> {
+    return this.execAdb(
+      ["-s", serial, "shell", "cmd", "media_session", "volume", "--stream", STREAM_MUSIC, "--set", String(index)],
+      5000
+    ).then(
+      () => undefined,
+      () =>
+        this.execAdb(
+          ["-s", serial, "shell", "media", "volume", "--stream", STREAM_MUSIC, "--set", String(index)],
+          5000
+        ).then(() => undefined)
+    );
+  }
+
+  private async readStreamMusicVolume(
+    serial: string
+  ): Promise<{ current: number; max: number } | null> {
+    try {
+      const output = await this.execAdb(["-s", serial, "shell", "dumpsys", "audio"], 6000);
+      const block = output.split(/^-\s+STREAM_/m).find((part) => part.startsWith("MUSIC:"));
+      if (block) {
+        const max = /^\s*Max:\s*(\d+)/m.exec(block);
+        const current = /^\s*streamVolume:\s*(\d+)/m.exec(block);
+        if (max && current) {
+          return {
+            current: Number.parseInt(current[1], 10),
+            max: Number.parseInt(max[1], 10),
+          };
+        }
+      }
+    } catch {
+      // fall through to media_session
+    }
+
+    try {
+      const output = await this.execAdb(
+        ["-s", serial, "shell", "cmd", "media_session", "volume", "--stream", STREAM_MUSIC, "--get"],
+        5000
+      );
+      const match = /volume is (\d+) in range \[(\d+)\.\.(\d+)\]/i.exec(output);
+      if (match) {
+        return {
+          current: Number.parseInt(match[1], 10),
+          max: Number.parseInt(match[3], 10),
+        };
+      }
+    } catch {
+      // Volume service unavailable; routing falls back to desktop-only mute.
+    }
+
+    console.warn("[ScrcpyServerManager] Could not read phone media volume.");
+    return null;
   }
 
   private fail(session: number, message: string): void {
@@ -437,6 +761,7 @@ export class ScrcpyServerManager extends EventEmitter {
     console.error("[ScrcpyServerManager]", message);
     this.emit("state-changed", this.state, message);
 
+    void this.restorePhoneVolume(serial);
     if (serial && port > 0) void this.removeForward(serial, port);
     if (serial && scid) this.killRemoteServer(serial, scid);
     this.localPort = 0;
@@ -458,6 +783,8 @@ export class ScrcpyServerManager extends EventEmitter {
     this.scid = "";
     this.state = "stopped";
     this.emit("state-changed", this.state);
+
+    await this.restorePhoneVolume(serial);
 
     if (serial && port > 0) {
       await this.removeForward(serial, port);
@@ -585,6 +912,8 @@ export class ScrcpyServerManager extends EventEmitter {
     this.emit("state-changed", this.state);
     console.log("[ScrcpyServerManager] Mirroring is live.");
 
+    this.applyAudioRouting();
+
     const ready = this.pendingReady;
     this.pendingReady = null;
     if (ready && ready.session === session) ready.resolve();
@@ -606,6 +935,13 @@ export class ScrcpyServerManager extends EventEmitter {
       this.videoSocket.destroy();
       this.videoSocket = null;
     }
+    if (this.audioSocket) {
+      this.audioSocket.removeAllListeners();
+      this.audioSocket.on("error", () => {});
+      this.audioSocket.destroy();
+      this.audioSocket = null;
+    }
+    this.audioConnectStarted = false;
     if (this.controlSocket) {
       this.controlSocket.removeAllListeners();
       this.controlSocket.on("error", () => {});
@@ -636,6 +972,10 @@ export class ScrcpyServerManager extends EventEmitter {
     this.savedConfig = null;
     this.videoWidth = 0;
     this.videoHeight = 0;
+    this.audioRxBuf = Buffer.alloc(0);
+    this.audioHeaderParsed = false;
+    this.audioDisabled = false;
+    this.audioCodec = "opus";
   }
 
   private makeScid(): string {

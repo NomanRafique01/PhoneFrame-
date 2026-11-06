@@ -68,6 +68,9 @@ export interface FloatingPhoneAPI {
   onVideoChunk: (callback: (chunk: Uint8Array) => void) => () => void;
   onVideoInit?: (callback: (meta: { codec: string; width: number; height: number }) => void) => () => void;
   onVideoCodec?: (callback: (codec: string) => void) => () => void;
+  onAudioInit?: (callback: (meta: { codec: string }) => void) => () => void;
+  onAudioChunk?: (callback: (chunk: Uint8Array) => void) => () => void;
+  setAudioSettings?: (settings: { muted: boolean; level: number }) => void;
 
   // Screen input (pointer, scroll, keyboard)
   sendControl: (input: ScreenControlInput) => void;
@@ -121,6 +124,23 @@ const api: FloatingPhoneAPI = {
     return () => {
       ipcRenderer.removeListener("video:codec", handler);
     };
+  },
+  onAudioInit: (callback: (meta: { codec: string }) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, meta: { codec: string }) => callback(meta);
+    ipcRenderer.on("audio:init", handler);
+    return () => {
+      ipcRenderer.removeListener("audio:init", handler);
+    };
+  },
+  onAudioChunk: (callback: (chunk: Uint8Array) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, chunk: Uint8Array) => callback(chunk);
+    ipcRenderer.on("audio:chunk", handler);
+    return () => {
+      ipcRenderer.removeListener("audio:chunk", handler);
+    };
+  },
+  setAudioSettings: (settings: { muted: boolean; level: number }) => {
+    ipcRenderer.send("audio:settings", settings);
   },
 
   sendControl: (input: ScreenControlInput) => {
