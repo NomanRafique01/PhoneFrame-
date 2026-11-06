@@ -221,7 +221,7 @@ export const App: React.FC = () => {
     const stage = stageRef.current;
     const wrap = phoneWrapRef.current;
     if (!stage || !wrap) return { x, y };
-    const maxX = Math.max(0, (stage.clientWidth - wrap.offsetWidth) / 2 - 24);
+    const maxX = Math.max(0, (stage.clientWidth - wrap.offsetWidth) / 2 - 24 - 64);
     const maxY = Math.max(0, (stage.clientHeight - wrap.offsetHeight) / 2 - 24);
     return {
       x: Math.min(maxX, Math.max(-maxX, x)),
@@ -311,14 +311,14 @@ export const App: React.FC = () => {
             style={{
               position: "absolute",
               top: "50%",
-              right: "calc(100% + 10px)",
-              left: "auto",
+              left: "calc(100% + 10px)",
+              right: "auto",
               zIndex: 100,
               opacity: isHovered || showInspector || isDragging ? 1 : 0,
               pointerEvents: isHovered || showInspector || isDragging ? "auto" : "none",
               transform: isHovered || showInspector || isDragging
                 ? "translateY(-50%) translateX(0)"
-                : "translateY(-50%) translateX(-6px)",
+                : "translateY(-50%) translateX(6px)",
               transition: "opacity 160ms cubic-bezier(0.16, 1, 0.3, 1), transform 160ms cubic-bezier(0.16, 1, 0.3, 1)",
             }}
           >
