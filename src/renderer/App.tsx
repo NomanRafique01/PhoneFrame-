@@ -58,6 +58,7 @@ export const App: React.FC = () => {
   const [isWizardActive, setIsWizardActive] = useState(true);
   const [isHovered, setIsHovered] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
+  const [isScreenInteracting, setIsScreenInteracting] = useState(false);
   const [touchHudOpen, setTouchHudOpen] = useState(false);
   const [phoneOffset, setPhoneOffset] = useState({ x: 0, y: 0 });
   const hideTimerRef = useRef<number | null>(null);
@@ -195,9 +196,12 @@ export const App: React.FC = () => {
   // Click-through when the pointer is off the phone (transparent overlay must not block the desktop).
   // While dragging, the window must keep receiving events so the drag survives the cursor leaving the frame.
   // While the inspector is open, it must stay clickable, so the window keeps capturing the mouse.
+  // Screen gestures (swipe/scroll) also keep the window interactive even if the cursor leaves the frame.
   useEffect(() => {
-    window.electronAPI?.setIgnoreMouseEvents?.(!(isHovered || isDragging || showInspector || touchHudOpen));
-  }, [isHovered, isDragging, showInspector, touchHudOpen]);
+    window.electronAPI?.setIgnoreMouseEvents?.(
+      !(isHovered || isDragging || isScreenInteracting || showInspector || touchHudOpen)
+    );
+  }, [isHovered, isDragging, isScreenInteracting, showInspector, touchHudOpen]);
 
   // Opening the settings page glides the phone back to the center of its page
   useEffect(() => {
@@ -461,7 +465,12 @@ export const App: React.FC = () => {
               ) : isStreaming || isStarting ? (
                 /* Mounted as soon as startup begins so the first codec config
                    and keyframe are not missed while connecting */
-                <VideoCanvas width={screenWidth} height={screenHeight} isStreaming={isStreaming} />
+                <VideoCanvas
+                  width={screenWidth}
+                  height={screenHeight}
+                  isStreaming={isStreaming}
+                  onInteractionChange={setIsScreenInteracting}
+                />
               ) : (
                 /* Standby / Ready View */
                 <div

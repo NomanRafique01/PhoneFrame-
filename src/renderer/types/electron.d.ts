@@ -23,6 +23,27 @@ export interface MirrorStatePayload {
   error?: string;
 }
 
+export type ScreenControlInput =
+  | {
+      type: "touch";
+      action: "down" | "up" | "move";
+      x: number;
+      y: number;
+      screenWidth: number;
+      screenHeight: number;
+    }
+  | {
+      type: "scroll";
+      x: number;
+      y: number;
+      screenWidth: number;
+      screenHeight: number;
+      hScroll: number;
+      vScroll: number;
+    }
+  | { type: "key"; action: "down" | "up"; keycode: number; repeat?: number; metaState?: number }
+  | { type: "text"; text: string };
+
 export interface FloatingPhoneAPI {
   // Window controls
   setAlwaysOnTop: (flag: boolean) => Promise<boolean>;
@@ -45,6 +66,9 @@ export interface FloatingPhoneAPI {
   onVideoChunk: (callback: (chunk: Uint8Array) => void) => () => void;
   onVideoInit?: (callback: (meta: { codec: string; width: number; height: number }) => void) => () => void;
   onVideoCodec?: (callback: (codec: string) => void) => () => void;
+
+  // Screen input (pointer, scroll, keyboard)
+  sendControl: (input: ScreenControlInput) => void;
 }
 
 declare global {

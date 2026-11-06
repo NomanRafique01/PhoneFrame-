@@ -211,3 +211,8 @@ ipcMain.handle("mirror:stop", async () => {
 ipcMain.handle("mirror:getState", () => {
   return mirrorManager?.getState() ?? "stopped";
 });
+
+// High-frequency pointer/scroll/key stream: fire-and-forget to keep input latency low.
+ipcMain.on("mirror:control", (_event, input: unknown) => {
+  mirrorManager?.injectInput(input);
+});

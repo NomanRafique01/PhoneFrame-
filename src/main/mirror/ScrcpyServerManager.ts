@@ -3,6 +3,7 @@ import * as net from "node:net";
 import * as path from "node:path";
 import * as fs from "node:fs";
 import { EventEmitter } from "node:events";
+import { encodeControlInput } from "./controlMessages";
 
 const REMOTE_JAR = "/data/local/tmp/scrcpy-server.jar";
 const SERVER_VERSION = "3.1";
@@ -40,6 +41,8 @@ export class ScrcpyServerManager extends EventEmitter {
   private state: MirrorState = "stopped";
   private serverProcess: ChildProcessWithoutNullStreams | null = null;
   private videoSocket: net.Socket | null = null;
+  private controlSocket: net.Socket | null = null;
+  private controlConnectStarted = false;
   private activeSerial: string | null = null;
   private localPort: number = 0;
   private scid: string = "";
@@ -246,7 +249,7 @@ export class ScrcpyServerManager extends EventEmitter {
       `scid=${this.scid}`,
       "tunnel_forward=true",
       "audio=false",
-      "control=false",
+      "control=true",
       "send_device_meta=false",
       `max_size=${maxSize}`,
       `video_bit_rate=${bitRate}`,
@@ -336,8 +339,12 @@ export class ScrcpyServerManager extends EventEmitter {
 
     socket.on("data", (chunk: Buffer) => {
       if (session !== this.sessionId) return;
+      // The first byte is the server's dummy byte, written right after it
+      // accepts the video socket and right before it waits for control.
+      const isFirstData = !gotData;
       gotData = true;
       this.rxBuf = Buffer.concat([this.rxBuf, chunk]);
+      if (isFirstData) this.connectControl(session);
       this.parseStream(session);
     });
 
@@ -364,6 +371,56 @@ export class ScrcpyServerManager extends EventEmitter {
 
       this.fail(session, "The video stream connection closed unexpectedly.");
     });
+  }
+
+  /**
+   * scrcpy accepts video first, writes the dummy byte, then blocks accepting
+   * the control connection before it starts encoding. Receiving the dummy
+   * byte therefore means the server is waiting for this second connection,
+   * which must ride the same ADB forward as the video socket.
+   */
+  private connectControl(session: number): void {
+    if (session !== this.sessionId) return;
+    if (this.controlSocket || this.controlConnectStarted) return;
+    if (this.localPort <= 0) return;
+
+    this.controlConnectStarted = true;
+    const socket = net.createConnection({ host: "127.0.0.1", port: this.localPort });
+    this.controlSocket = socket;
+    socket.setNoDelay(true);
+
+    socket.once("connect", () => {
+      if (session !== this.sessionId) return;
+      console.log("[ScrcpyServerManager] Control channel connected.");
+    });
+
+    // Device → client messages (clipboard sync, UHID output) are not used,
+    // but the socket must be drained so the server never blocks on writes.
+    socket.on("data", () => {});
+
+    socket.on("error", (err) => {
+      if (session !== this.sessionId) return;
+      this.fail(session, `Control connection failed: ${err.message}`);
+    });
+
+    socket.on("close", () => {
+      if (this.controlSocket === socket) this.controlSocket = null;
+      if (session !== this.sessionId) return;
+      this.fail(session, "The control connection closed unexpectedly.");
+    });
+  }
+
+  /** Queues one pointer/keyboard event on the control channel. */
+  public injectInput(input: unknown): boolean {
+    if (this.state !== "running") return false;
+    const socket = this.controlSocket;
+    if (!socket || socket.destroyed || !socket.writable) return false;
+
+    const message = encodeControlInput(input);
+    if (!message) return false;
+
+    socket.write(message);
+    return true;
   }
 
   private fail(session: number, message: string): void {
@@ -549,6 +606,13 @@ export class ScrcpyServerManager extends EventEmitter {
       this.videoSocket.destroy();
       this.videoSocket = null;
     }
+    if (this.controlSocket) {
+      this.controlSocket.removeAllListeners();
+      this.controlSocket.on("error", () => {});
+      this.controlSocket.destroy();
+      this.controlSocket = null;
+    }
+    this.controlConnectStarted = false;
     if (this.serverProcess) {
       const process = this.serverProcess;
       this.serverProcess = null;
