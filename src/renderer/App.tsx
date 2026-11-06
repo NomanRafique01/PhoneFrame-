@@ -32,7 +32,6 @@ export const App: React.FC = () => {
   });
 
   const [mirrorState, setMirrorState] = useState<MirrorState>("stopped");
-  const [mirrorError, setMirrorError] = useState<string | null>(null);
   const [sessionNotice, setSessionNotice] = useState<string | null>(null);
   const prevMirrorStateRef = useRef<MirrorState>("stopped");
   const lastAdbStatusRef = useRef<AdbStatusPayload>({
@@ -67,6 +66,12 @@ export const App: React.FC = () => {
   const startInFlightRef = useRef(false);
   const stageRef = useRef<HTMLDivElement>(null);
   const phoneWrapRef = useRef<HTMLDivElement>(null);
+
+  const showSessionNotice = (text: string) => {
+    setSessionNotice(text);
+    if (noticeTimerRef.current) window.clearTimeout(noticeTimerRef.current);
+    noticeTimerRef.current = window.setTimeout(() => setSessionNotice(null), 5000);
+  };
 
   // Persist scale preference across sessions
   useEffect(() => {
@@ -122,20 +127,17 @@ export const App: React.FC = () => {
         prevMirrorStateRef.current = payload.state;
 
         setMirrorState(payload.state);
-        setMirrorError(payload.error ?? null);
 
         // Any stream termination — manual stop, unplug, scrcpy crash — returns
         // to the connection screen. ADB detection keeps running underneath.
         if (wasActive && isEnded) {
           setIsWizardActive(true);
           const stillConnected = lastAdbStatusRef.current.state === "device";
-          setSessionNotice(
+          showSessionNotice(
             payload.state === "error" || !stillConnected
               ? "Phone disconnected. Waiting for a new connection…"
               : "Stream stopped. Device is still connected."
           );
-          if (noticeTimerRef.current) window.clearTimeout(noticeTimerRef.current);
-          noticeTimerRef.current = window.setTimeout(() => setSessionNotice(null), 5000);
         }
       });
 
@@ -228,7 +230,11 @@ export const App: React.FC = () => {
 
   const handleStartMirror = async () => {
     const serial = adbStatus.activeDevice?.serial;
-    if (!serial) return;
+    if (adbStatus.state !== "device" || !serial) {
+      // Never launch scrcpy without a live device; stay in the guide and wait.
+      showSessionNotice("Your phone is not connected. Waiting for a connection…");
+      return;
+    }
     // One click = one startup. The ref stops rapid double-clicks before the
     // "starting" state has rendered; the state check stops later duplicates.
     if (startInFlightRef.current || mirrorState === "starting" || mirrorState === "running") return;
@@ -449,12 +455,7 @@ export const App: React.FC = () => {
                 <SetupWizard
                   adbStatus={adbStatus}
                   notice={sessionNotice}
-                  onComplete={() => {
-                    setIsWizardActive(false);
-                    if (isDeviceConnected) {
-                      handleStartMirror();
-                    }
-                  }}
+                  onComplete={handleStartMirror}
                   onDismiss={() => setIsWizardActive(false)}
                 />
               ) : isStreaming || isStarting ? (
@@ -503,7 +504,7 @@ export const App: React.FC = () => {
                     >
                       {isDeviceConnected
                         ? `${activeDevice?.model ?? "ANDROID DEVICE"} ONLINE`
-                        : "FLOATING PHONE READY"}
+                        : "YOUR PHONE IS NOT CONNECTED"}
                     </div>
                     <p
                       style={{
@@ -515,7 +516,7 @@ export const App: React.FC = () => {
                     >
                       {isDeviceConnected
                         ? "Device authorized. Click below to start stream mirroring."
-                        : "Connect phone via USB with USB debugging enabled."}
+                        : "Waiting for a connection… Plug in your phone via USB with USB debugging enabled."}
                     </p>
                   </div>
 
@@ -555,19 +556,6 @@ export const App: React.FC = () => {
                     </button>
                   </div>
 
-                  {mirrorError && (
-                    <div
-                      className="mono-data"
-                      style={{
-                        fontSize: "10px",
-                        color: "var(--danger)",
-                        marginTop: "4px",
-                      }}
-                    >
-                      {mirrorError}
-                    </div>
-                  )}
-
                   <div
                     className="mono-data"
                     style={{
@@ -581,6 +569,7 @@ export const App: React.FC = () => {
                   >
                     {scaledOptions.aspectRatio.width}:{scaledOptions.aspectRatio.height} • {currentColorDef.name}
                   </div>
+
                 </div>
               )}
             </div>
