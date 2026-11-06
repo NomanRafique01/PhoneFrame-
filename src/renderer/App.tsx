@@ -37,14 +37,14 @@ export const App: React.FC = () => {
   const [isPinned, setIsPinned] = useState(true);
   const [scale, setScale] = useState<number>(() => {
     try {
-      const saved = localStorage.getItem("phoneframe_scale_v3") ?? localStorage.getItem("phoneframe_scale_v2");
+      const saved = localStorage.getItem("phoneframe_scale_v4") ?? localStorage.getItem("phoneframe_scale_v3");
       const parsed = saved ? Number(saved) : NaN;
       if (isNaN(parsed) || parsed < 60 || parsed > 140) {
-        return 80;
+        return 75;
       }
       return parsed;
     } catch {
-      return 80;
+      return 75;
     }
   });
   const [showInspector, setShowInspector] = useState(false);
@@ -60,7 +60,7 @@ export const App: React.FC = () => {
   // Persist scale preference across sessions
   useEffect(() => {
     try {
-      localStorage.setItem("phoneframe_scale_v3", String(scale));
+      localStorage.setItem("phoneframe_scale_v4", String(scale));
     } catch {
       // Ignore storage restrictions
     }
