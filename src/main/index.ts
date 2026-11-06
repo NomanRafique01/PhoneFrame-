@@ -173,8 +173,13 @@ ipcMain.handle("adb:getScreenSize", async (_event, serial: string) => {
 // Mirroring IPC handlers
 ipcMain.handle("mirror:start", async (_event, serial: string) => {
   if (!mirrorManager) return false;
-  await mirrorManager.start({ serial });
-  return true;
+  try {
+    // Resolves only once the stream is live (or the start failed).
+    await mirrorManager.start({ serial });
+  } catch (err) {
+    console.error("[main] mirror:start failed:", err);
+  }
+  return mirrorManager.getState() === "running";
 });
 
 ipcMain.handle("mirror:stop", async () => {

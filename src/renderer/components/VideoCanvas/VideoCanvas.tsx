@@ -132,9 +132,10 @@ export const VideoCanvas: React.FC<VideoCanvasProps> = ({ isStreaming }) => {
     };
   }, []);
 
-  // Listen for framed H.264 video chunks
+  // Listen for framed H.264 video chunks. Subscribed for the component's whole
+  // life (it mounts during "starting") so no config/keyframe is missed.
   useEffect(() => {
-    if (!window.electronAPI || !isStreaming) return;
+    if (!window.electronAPI) return;
 
     const onVideoChunk = (raw: Uint8Array) => {
       const decoder = decoderRef.current;
@@ -166,7 +167,7 @@ export const VideoCanvas: React.FC<VideoCanvasProps> = ({ isStreaming }) => {
     return () => {
       unsubscribe?.();
     };
-  }, [isStreaming]);
+  }, []);
 
   return (
     <div
@@ -191,6 +192,29 @@ export const VideoCanvas: React.FC<VideoCanvasProps> = ({ isStreaming }) => {
           imageRendering: "auto",
         }}
       />
+
+      {/* Startup / waiting state: shown until the first decoded frame lands */}
+      {!hasReceivedFrames && (
+        <div
+          className="mono-data"
+          style={{
+            position: "absolute",
+            inset: 0,
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: "10px",
+            fontSize: "11px",
+            letterSpacing: "0.08em",
+            color: "var(--mist-400)",
+            pointerEvents: "none",
+          }}
+        >
+          <span className="stream-starting-dot" />
+          <span>{isStreaming ? "WAITING FOR VIDEO…" : "STARTING STREAM…"}</span>
+        </div>
+      )}
 
       {/* Latency & Telemetry HUD Overlay */}
       {hasReceivedFrames && (

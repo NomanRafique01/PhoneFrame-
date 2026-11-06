@@ -1,8 +1,15 @@
-import { exec, spawn, ChildProcessWithoutNullStreams } from "node:child_process";
+import { execFile, spawn, ChildProcessWithoutNullStreams } from "node:child_process";
 import * as net from "node:net";
 import * as path from "node:path";
 import * as fs from "node:fs";
 import { EventEmitter } from "node:events";
+
+const REMOTE_JAR = "/data/local/tmp/scrcpy-server.jar";
+const SERVER_VERSION = "3.1";
+const STREAM_START_TIMEOUT_MS = 12000;
+const CONNECT_RETRY_MS = 200;
+const ADB_COMMAND_TIMEOUT_MS = 8000;
+const PUSH_TIMEOUT_MS = 30000;
 
 export interface MirrorOptions {
   serial: string;
@@ -19,14 +26,33 @@ export interface VideoInitPayload {
   height: number;
 }
 
+interface PendingReady {
+  session: number;
+  resolve: () => void;
+}
+
+function toMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
 export class ScrcpyServerManager extends EventEmitter {
   private adbPath: string;
   private state: MirrorState = "stopped";
   private serverProcess: ChildProcessWithoutNullStreams | null = null;
   private videoSocket: net.Socket | null = null;
   private activeSerial: string | null = null;
-  private localPort: number = 27183;
-  private scid: string = "01234567";
+  private localPort: number = 0;
+  private scid: string = "";
+
+  // Every start/stop gets a new session id. Async continuations and process /
+  // socket events from an older session are ignored, so a superseded startup
+  // can never tear down or error out the session that replaced it.
+  private sessionId: number = 0;
+  private startPromise: Promise<void> | null = null;
+  private retryTimer: NodeJS.Timeout | null = null;
+  private startTimer: NodeJS.Timeout | null = null;
+  private pendingReady: PendingReady | null = null;
+  private stderrTail: string[] = [];
 
   // Stream parser state
   private rxBuf: Buffer = Buffer.alloc(0);
@@ -65,164 +91,319 @@ export class ScrcpyServerManager extends EventEmitter {
     return null;
   }
 
-  public async start(options: MirrorOptions): Promise<void> {
-    if (this.state === "running" || this.state === "starting") {
-      await this.stop();
-    }
+  /**
+   * Starts mirroring and resolves only once the video stream is actually
+   * flowing. Repeated calls while a start is in flight join that same start;
+   * calls while already running are a no-op.
+   */
+  public start(options: MirrorOptions): Promise<void> {
+    if (this.state === "running") return Promise.resolve();
+    if (this.state === "starting" && this.startPromise) return this.startPromise;
 
+    const run = this.launch(options);
+    const tracked = run.finally(() => {
+      if (this.startPromise === tracked) this.startPromise = null;
+    });
+    this.startPromise = tracked;
+    return tracked;
+  }
+
+  private async launch(options: MirrorOptions): Promise<void> {
+    const serial = options.serial;
+    const previousSerial = this.activeSerial;
+    const previousPort = this.localPort;
+    const previousScid = this.scid;
+
+    this.sessionId += 1;
+    const session = this.sessionId;
+
+    this.teardown();
+    this.activeSerial = serial;
+    this.localPort = 0;
+    this.scid = "";
     this.state = "starting";
-    this.activeSerial = options.serial;
     this.emit("state-changed", this.state);
 
-    const jarPath = this.findServerJar();
-    if (!jarPath) {
-      const msg = "scrcpy-server jar not found in assets/.";
-      console.error("[ScrcpyServerManager]", msg);
-      this.state = "error";
-      this.emit("state-changed", this.state, msg);
+    // Clear leftovers from a previous failed session before a new one begins.
+    if (previousSerial && previousPort > 0) {
+      await this.removeForward(previousSerial, previousPort);
+    }
+    if (previousSerial && previousScid) {
+      this.killRemoteServer(previousSerial, previousScid);
+    }
+    if (session !== this.sessionId) return;
+
+    let createdForward: { serial: string; port: number } | null = null;
+
+    try {
+      const jarPath = this.findServerJar();
+      if (!jarPath) {
+        throw new Error("scrcpy-server jar not found in assets/.");
+      }
+      console.log(`[ScrcpyServerManager] Using jar: ${jarPath}`);
+
+      await this.validateDevice(serial);
+      this.assertCurrent(session);
+
+      await this.ensureServerJar(serial, jarPath);
+      this.assertCurrent(session);
+
+      this.scid = this.makeScid();
+      this.resetParser();
+      this.stderrTail = [];
+
+      // tcp:0 asks ADB for a free port, so a port collision can never fail a start.
+      const portOutput = await this.execAdb([
+        "-s", serial,
+        "forward", "tcp:0", `localabstract:scrcpy_${this.scid}`,
+      ]);
+
+      const port = Number.parseInt(portOutput, 10);
+      if (!Number.isInteger(port) || port <= 0) {
+        throw new Error(`ADB did not return a forwarding port (output: "${portOutput}").`);
+      }
+
+      // Recorded before the cancellation check so an interrupted start still
+      // removes the forward it just created.
+      createdForward = { serial, port };
+      this.assertCurrent(session);
+      this.localPort = port;
+      console.log(`[ScrcpyServerManager] adb forward: tcp:${port} → scrcpy_${this.scid}`);
+
+      this.spawnServer(session, serial, options);
+
+      const ready = new Promise<void>((resolve) => {
+        this.pendingReady = { session, resolve };
+      });
+
+      this.startTimer = setTimeout(() => {
+        if (session !== this.sessionId) return;
+        this.fail(
+          session,
+          `Stream did not start within ${Math.round(STREAM_START_TIMEOUT_MS / 1000)} s.`
+        );
+      }, STREAM_START_TIMEOUT_MS);
+
+      this.connectForStream(session);
+      await ready;
+    } catch (err) {
+      if (createdForward) {
+        await this.removeForward(createdForward.serial, createdForward.port);
+        if (this.localPort === createdForward.port) this.localPort = 0;
+      }
+      // Superseded by stop() or a newer start: nothing left to report.
+      if (session !== this.sessionId) return;
+      this.fail(session, toMessage(err));
+    }
+  }
+
+  private async validateDevice(serial: string): Promise<void> {
+    let deviceState = "";
+    try {
+      deviceState = await this.execAdb(["-s", serial, "get-state"], 5000);
+    } catch (err) {
+      throw new Error(`Device ${serial} is not reachable over ADB: ${toMessage(err)}`);
+    }
+    if (deviceState !== "device") {
+      throw new Error(`Device ${serial} is not ready (ADB state: ${deviceState || "unknown"}).`);
+    }
+  }
+
+  private async ensureServerJar(serial: string, jarPath: string): Promise<void> {
+    const localSize = fs.statSync(jarPath).size;
+    try {
+      const remoteSize = Number.parseInt(
+        await this.execAdb(["-s", serial, "shell", "stat", "-c", "%s", REMOTE_JAR], 4000),
+        10
+      );
+      if (remoteSize === localSize) {
+        console.log("[ScrcpyServerManager] Server jar already up to date on device.");
+        return;
+      }
+    } catch {
+      // stat unavailable or file missing – push below
+    }
+
+    await this.execAdb(["-s", serial, "push", jarPath, REMOTE_JAR], PUSH_TIMEOUT_MS);
+    console.log(`[ScrcpyServerManager] Server jar pushed to ${REMOTE_JAR}`);
+  }
+
+  private spawnServer(session: number, serial: string, options: MirrorOptions): void {
+    const maxSize = options.maxSize || 1440;
+    const bitRate = options.bitRate || 8000000;
+    const serverArgs = [
+      "-s", serial,
+      "shell",
+      `CLASSPATH=${REMOTE_JAR}`,
+      "app_process",
+      "/",
+      "com.genymobile.scrcpy.Server",
+      SERVER_VERSION,
+      `scid=${this.scid}`,
+      "tunnel_forward=true",
+      "audio=false",
+      "control=false",
+      "send_device_meta=false",
+      `max_size=${maxSize}`,
+      `video_bit_rate=${bitRate}`,
+    ];
+
+    if (options.maxFps) {
+      serverArgs.push(`max_fps=${options.maxFps}`);
+    }
+
+    const process = spawn(this.adbPath, serverArgs, { windowsHide: true });
+    this.serverProcess = process;
+    console.log(
+      `[ScrcpyServerManager] scrcpy-server spawning (scid=${this.scid}, pid=${process.pid ?? "?"})`
+    );
+
+    const recordLine = (line: string) => {
+      this.stderrTail.push(line);
+      if (this.stderrTail.length > 8) this.stderrTail.shift();
+    };
+
+    process.stdout.on("data", (data: Buffer) => {
+      const line = data.toString().trim();
+      if (line) console.log("[scrcpy-server stdout]:", line);
+    });
+
+    process.stderr.on("data", (data: Buffer) => {
+      const line = data.toString().trim();
+      if (line) {
+        console.log("[scrcpy-server stderr]:", line);
+        recordLine(line);
+      }
+    });
+
+    process.on("error", (err) => {
+      if (session !== this.sessionId) return;
+      this.fail(session, `Failed to launch scrcpy-server: ${err.message}`);
+    });
+
+    process.on("close", (code, signal) => {
+      if (session !== this.sessionId) return;
+      const how = signal ? `signal ${signal}` : `code ${code}`;
+      const tail = this.stderrTail.length
+        ? ` Last output: ${this.stderrTail[this.stderrTail.length - 1]}`
+        : "";
+      this.fail(session, `scrcpy-server exited unexpectedly (${how}).${tail}`);
+    });
+  }
+
+  /**
+   * Connects through the ADB forward. A local TCP accept does not mean the
+   * phone side exists yet, so attempts that close before any stream data are
+   * retried until the server is actually listening.
+   */
+  private connectForStream(session: number): void {
+    if (session !== this.sessionId) return;
+
+    if (this.localPort <= 0) {
+      this.fail(session, "No local forwarding port available for the video stream.");
       return;
     }
 
-    console.log(`[ScrcpyServerManager] Using jar: ${jarPath}`);
+    const port = this.localPort;
+    const socket = net.createConnection({ host: "127.0.0.1", port });
+    this.videoSocket = socket;
+    let attemptDone = false;
+    let gotData = false;
 
-    try {
-      // 1. Push server jar to device
-      await this.execAdb(`-s ${options.serial} push "${jarPath}" /data/local/tmp/scrcpy-server.jar`);
-      console.log("[ScrcpyServerManager] Server jar pushed to /data/local/tmp/scrcpy-server.jar");
+    const scheduleRetry = (reason: string) => {
+      if (attemptDone) return;
+      attemptDone = true;
+      socket.removeAllListeners();
+      socket.on("error", () => {});
+      socket.destroy();
+      if (this.videoSocket === socket) this.videoSocket = null;
+      if (session !== this.sessionId) return;
 
-      // 2. Generate random safe port & positive hex scid (<= 0x7fffffff to avoid Java NumberFormatException)
-      this.localPort = 27183 + Math.floor(Math.random() * 200);
-      this.scid = Math.floor(Math.random() * 0x7fffffff)
-        .toString(16)
-        .padStart(8, "0");
+      console.log(`[ScrcpyServerManager] Stream not ready yet (${reason}); retrying…`);
+      this.retryTimer = setTimeout(() => {
+        this.retryTimer = null;
+        this.connectForStream(session);
+      }, CONNECT_RETRY_MS);
+    };
 
-      // 3. Set up ADB port forwarding
-      await this.execAdb(
-        `-s ${options.serial} forward tcp:${this.localPort} localabstract:scrcpy_${this.scid}`
-      );
-      console.log(`[ScrcpyServerManager] adb forward: tcp:${this.localPort} → scrcpy_${this.scid}`);
+    socket.once("connect", () => {
+      console.log(`[ScrcpyServerManager] Adb forward accepted on 127.0.0.1:${port}, awaiting stream data…`);
+    });
 
-      // 4. Reset stream parser state
-      this.rxBuf = Buffer.alloc(0);
-      this.headerParsed = false;
-      this.savedConfig = null;
-      this.videoWidth = 0;
-      this.videoHeight = 0;
-      this.codecId = "h264";
+    socket.on("data", (chunk: Buffer) => {
+      if (session !== this.sessionId) return;
+      gotData = true;
+      this.rxBuf = Buffer.concat([this.rxBuf, chunk]);
+      this.parseStream(session);
+    });
 
-      // 5. Launch scrcpy-server
-      //    - send_device_meta=false ensures no 64-byte ASCII device header shifts the stream
-      //    - max_size ensures crisp high definition without straining USB
-      const maxSize = options.maxSize || 1440;
-      const bitRate = options.bitRate || 8000000;
-      const serverArgs = [
-        "-s", options.serial,
-        "shell",
-        "CLASSPATH=/data/local/tmp/scrcpy-server.jar",
-        "app_process",
-        "/",
-        "com.genymobile.scrcpy.Server",
-        "3.1",
-        `scid=${this.scid}`,
-        "tunnel_forward=true",
-        "audio=false",
-        "control=false",
-        "send_device_meta=false",
-        `max_size=${maxSize}`,
-        `video_bit_rate=${bitRate}`,
-      ];
+    socket.on("error", (err) => {
+      scheduleRetry(err.message);
+    });
 
-      if (options.maxFps) {
-        serverArgs.push(`max_fps=${options.maxFps}`);
+    socket.on("close", () => {
+      if (attemptDone) return;
+      attemptDone = true;
+      if (this.videoSocket === socket) this.videoSocket = null;
+      if (session !== this.sessionId) return;
+
+      if (!gotData) {
+        if (this.state === "starting") {
+          console.log("[ScrcpyServerManager] Forward closed before stream data; retrying…");
+          this.retryTimer = setTimeout(() => {
+            this.retryTimer = null;
+            this.connectForStream(session);
+          }, CONNECT_RETRY_MS);
+        }
+        return;
       }
 
-      this.serverProcess = spawn(this.adbPath, serverArgs);
+      this.fail(session, "The video stream connection closed unexpectedly.");
+    });
+  }
 
-      this.serverProcess.stderr.on("data", (data: Buffer) => {
-        const line = data.toString().trim();
-        if (line) console.log("[scrcpy-server stderr]:", line);
-      });
+  private fail(session: number, message: string): void {
+    if (session !== this.sessionId) return;
+    if (this.state !== "starting" && this.state !== "running") return;
 
-      this.serverProcess.stdout.on("data", (data: Buffer) => {
-        const line = data.toString().trim();
-        if (line) console.log("[scrcpy-server stdout]:", line);
-      });
+    const serial = this.activeSerial;
+    const port = this.localPort;
+    const scid = this.scid;
 
-      this.serverProcess.on("close", (code) => {
-        console.log(`[scrcpy-server] process exited with code ${code}`);
-        this.cleanup();
-        if (this.state !== "stopped") {
-          this.state = "error";
-          this.emit("state-changed", this.state, `Server exited with code ${code}`);
-        }
-      });
+    this.sessionId += 1;
+    this.teardown();
+    this.state = "error";
+    console.error("[ScrcpyServerManager]", message);
+    this.emit("state-changed", this.state, message);
 
-      // 6. Connect after giving the server time to bind the local abstract socket
-      setTimeout(() => {
-        this.connectVideoSocket();
-      }, 1200);
-
-    } catch (err: unknown) {
-      console.error("[ScrcpyServerManager start error]:", err);
-      this.state = "error";
-      this.emit("state-changed", this.state, String(err));
-    }
+    if (serial && port > 0) void this.removeForward(serial, port);
+    if (serial && scid) this.killRemoteServer(serial, scid);
+    this.localPort = 0;
+    this.scid = "";
   }
 
   public async stop(): Promise<void> {
     const serial = this.activeSerial;
-    const port   = this.localPort;
+    const port = this.localPort;
+    const scid = this.scid;
 
-    this.cleanup();
-
-    if (serial) {
-      try {
-        await this.execAdb(`-s ${serial} forward --remove tcp:${port}`);
-      } catch {
-        // ignore – forward may already be removed
-      }
-      this.activeSerial = null;
-    }
-
+    // Invalidate every in-flight operation before killing anything, so their
+    // close/error handlers cannot report a failure for an intentional stop.
+    this.sessionId += 1;
+    this.startPromise = null;
+    this.teardown();
+    this.activeSerial = null;
+    this.localPort = 0;
+    this.scid = "";
     this.state = "stopped";
     this.emit("state-changed", this.state);
-  }
 
-  private connectVideoSocket(retries = 8): void {
-    const socket = net.createConnection({ host: "127.0.0.1", port: this.localPort });
-
-    socket.on("connect", () => {
-      console.log(`[ScrcpyServerManager] Video socket connected on 127.0.0.1:${this.localPort}`);
-      this.state = "running";
-      this.emit("state-changed", this.state);
-    });
-
-    socket.on("data", (chunk: Buffer) => {
-      this.rxBuf = Buffer.concat([this.rxBuf, chunk]);
-      this.parseStream();
-    });
-
-    socket.on("error", (err) => {
-      if (retries > 0 && (this.state === "starting" || this.state === "running")) {
-        console.log(`[ScrcpyServerManager] Socket error (${err.message}), retrying (${retries} left)…`);
-        setTimeout(() => this.connectVideoSocket(retries - 1), 500);
-      } else {
-        console.error("[ScrcpyServerManager] Socket error:", err);
-        this.state = "error";
-        this.emit("state-changed", this.state, err.message);
-      }
-    });
-
-    socket.on("close", () => {
-      console.log("[ScrcpyServerManager] Video socket closed.");
-      if (this.state === "running") {
-        this.cleanup();
-        this.state = "stopped";
-        this.emit("state-changed", this.state);
-      }
-    });
-
-    this.videoSocket = socket;
+    if (serial && port > 0) {
+      await this.removeForward(serial, port);
+    }
+    if (serial && scid) {
+      this.killRemoteServer(serial, scid);
+    }
   }
 
   /**
@@ -237,7 +418,9 @@ export class ScrcpyServerManager extends EventEmitter {
    *    - 4 bytes packet size (BE uint32)
    *    - Followed by [packet_size] bytes of Annex-B payload.
    */
-  private parseStream(): void {
+  private parseStream(session: number): void {
+    if (session !== this.sessionId) return;
+
     // Step 1: parse 13-byte stream header
     if (!this.headerParsed) {
       if (this.rxBuf.length < 13) return;
@@ -259,6 +442,7 @@ export class ScrcpyServerManager extends EventEmitter {
 
       this.rxBuf = this.rxBuf.subarray(13);
       this.headerParsed = true;
+      this.markRunning(session);
     }
 
     // Step 2: parse framed video packets
@@ -326,15 +510,59 @@ export class ScrcpyServerManager extends EventEmitter {
     }
   }
 
-  private cleanup(): void {
+  /** The stream header is the first real proof that mirroring is live. */
+  private markRunning(session: number): void {
+    if (session !== this.sessionId) return;
+    if (this.state === "running") return;
+
+    if (this.startTimer) {
+      clearTimeout(this.startTimer);
+      this.startTimer = null;
+    }
+
+    this.state = "running";
+    this.emit("state-changed", this.state);
+    console.log("[ScrcpyServerManager] Mirroring is live.");
+
+    const ready = this.pendingReady;
+    this.pendingReady = null;
+    if (ready && ready.session === session) ready.resolve();
+  }
+
+  /** Detach and kill the current session's resources. Never emits state. */
+  private teardown(): void {
+    if (this.retryTimer) {
+      clearTimeout(this.retryTimer);
+      this.retryTimer = null;
+    }
+    if (this.startTimer) {
+      clearTimeout(this.startTimer);
+      this.startTimer = null;
+    }
     if (this.videoSocket) {
+      this.videoSocket.removeAllListeners();
+      this.videoSocket.on("error", () => {});
       this.videoSocket.destroy();
       this.videoSocket = null;
     }
     if (this.serverProcess) {
-      try { this.serverProcess.kill(); } catch { /* ignore */ }
+      const process = this.serverProcess;
       this.serverProcess = null;
+      try {
+        process.kill();
+      } catch {
+        // already gone
+      }
     }
+
+    const ready = this.pendingReady;
+    this.pendingReady = null;
+    ready?.resolve();
+
+    this.resetParser();
+  }
+
+  private resetParser(): void {
     this.rxBuf = Buffer.alloc(0);
     this.headerParsed = false;
     this.savedConfig = null;
@@ -342,12 +570,46 @@ export class ScrcpyServerManager extends EventEmitter {
     this.videoHeight = 0;
   }
 
-  private execAdb(cmd: string): Promise<string> {
+  private makeScid(): string {
+    // Positive hex id ≤ 0x7fffffff avoids Java NumberFormatException
+    return Math.floor(Math.random() * 0x7fffffff)
+      .toString(16)
+      .padStart(8, "0");
+  }
+
+  private assertCurrent(session: number): void {
+    if (session !== this.sessionId) throw new Error("Startup cancelled.");
+  }
+
+  private async removeForward(serial: string, port: number): Promise<void> {
+    try {
+      await this.execAdb(["-s", serial, "forward", "--remove", `tcp:${port}`], 4000);
+    } catch {
+      // The forward may already be gone (device unplugged, adb restarted).
+    }
+  }
+
+  /** Best-effort cleanup of our own server process, matched by unique scid. */
+  private killRemoteServer(serial: string, scid: string): void {
+    void this.execAdb(["-s", serial, "shell", "pkill", "-f", `scid=${scid}`], 3000).catch(() => {
+      // Device gone or pkill unavailable – nothing else to do.
+    });
+  }
+
+  private execAdb(args: string[], timeoutMs = ADB_COMMAND_TIMEOUT_MS): Promise<string> {
     return new Promise((resolve, reject) => {
-      exec(`"${this.adbPath}" ${cmd}`, (err, stdout, stderr) => {
-        if (err) return reject(new Error(stderr || stdout || err.message));
-        resolve(stdout.trim());
-      });
+      execFile(
+        this.adbPath,
+        args,
+        { timeout: timeoutMs, windowsHide: true, maxBuffer: 4 * 1024 * 1024 },
+        (err, stdout, stderr) => {
+          if (err) {
+            const detail = (stderr || stdout || "").trim() || err.message;
+            return reject(new Error(detail));
+          }
+          resolve(String(stdout).trim());
+        }
+      );
     });
   }
 }
