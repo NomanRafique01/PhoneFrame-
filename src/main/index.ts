@@ -12,14 +12,48 @@ let mirrorManager: ScrcpyServerManager | null = null;
 let pinned = true;
 const PIN_LEVEL = "screen-saver";
 
-// Windowed geometry captured as fullscreen begins, so leaving fullscreen
-// restores exactly the overlay the user had (native restore can differ when
-// the taskbar reveal area is reserved).
+// Windowed geometry captured as immersive mode begins, so leaving it restores
+// exactly the overlay the user had (including the auto-hidden-taskbar reserve).
 let fullscreenRestoreBounds: Electron.Rectangle | null = null;
 
 function applyPin(): void {
   if (!mainWindow) return;
   mainWindow.setAlwaysOnTop(pinned, PIN_LEVEL);
+}
+
+function notifyFullscreenChanged(flag: boolean): void {
+  if (mainWindow?.webContents && !mainWindow.webContents.isDestroyed()) {
+    mainWindow.webContents.send("window:fullscreen-changed", flag);
+  }
+}
+
+/**
+ * Transparent windows cannot enter native fullscreen on Windows — Electron only
+ * resizes them to the monitor while isFullScreen() stays false, so the native
+ * state can never be exited and the overlay would stay full-height (blocking
+ * the auto-hidden taskbar). Immersive mode is therefore explicit work-area
+ * bounds plus the saved windowed geometry. It deliberately keeps the taskbar
+ * reveal strip free: a window that covers the screen edge turns clicks aimed at
+ * the (invisible) taskbar into taps on the phone's own navigation bar.
+ */
+function setImmersive(active: boolean): boolean {
+  if (!mainWindow) return false;
+  if (active === (fullscreenRestoreBounds !== null)) return active;
+
+  if (active) {
+    fullscreenRestoreBounds = mainWindow.getBounds();
+    mainWindow.setResizable(false);
+    mainWindow.setBounds(computeWindowBounds());
+  } else {
+    const restore = fullscreenRestoreBounds ?? computeWindowBounds();
+    fullscreenRestoreBounds = null;
+    mainWindow.setBounds(restore);
+    mainWindow.setResizable(true);
+  }
+
+  applyPin();
+  notifyFullscreenChanged(active);
+  return active;
 }
 
 // Fullscreen bounds minus the auto-hidden-taskbar reserve, shared by window
@@ -76,24 +110,6 @@ function createWindow(): void {
   applyPin();
   mainWindow.on("blur", applyPin);
   mainWindow.on("restore", applyPin);
-
-  // Theme/OS-initiated fullscreen still has to reach the renderer, so the
-  // workspace, HUD, and click-through state always match the real window.
-  mainWindow.on("enter-full-screen", () => {
-    if (mainWindow?.webContents && !mainWindow.webContents.isDestroyed()) {
-      mainWindow.webContents.send("window:fullscreen-changed", true);
-    }
-  });
-
-  mainWindow.on("leave-full-screen", () => {
-    if (!mainWindow) return;
-    mainWindow.setBounds(fullscreenRestoreBounds ?? computeWindowBounds());
-    fullscreenRestoreBounds = null;
-    applyPin();
-    if (mainWindow.webContents && !mainWindow.webContents.isDestroyed()) {
-      mainWindow.webContents.send("window:fullscreen-changed", false);
-    }
-  });
 
   mainWindow.on("closed", () => {
     fullscreenRestoreBounds = null;
@@ -218,24 +234,12 @@ ipcMain.handle("window:setIgnoreMouseEvents", (_event, flag: boolean) => {
   mainWindow?.setIgnoreMouseEvents(flag, { forward: true });
 });
 
-// Native display fullscreen (covers the taskbar without manual bounds math).
-// The renderer paints an opaque backdrop, so the transparent window reads as a
-// solid immersive surface; the stream itself never restarts.
 ipcMain.handle("window:setFullscreen", (_event, flag: boolean) => {
-  if (!mainWindow) return false;
-  if (flag) {
-    if (!mainWindow.isFullScreen()) {
-      fullscreenRestoreBounds = mainWindow.getBounds();
-      mainWindow.setFullScreen(true);
-    }
-  } else if (mainWindow.isFullScreen()) {
-    mainWindow.setFullScreen(false);
-  }
-  return mainWindow.isFullScreen();
+  return setImmersive(Boolean(flag));
 });
 
 ipcMain.handle("window:getFullscreen", () => {
-  return mainWindow?.isFullScreen() ?? false;
+  return fullscreenRestoreBounds !== null;
 });
 
 // ADB IPC handlers
