@@ -13,6 +13,7 @@ PhoneFrame is designed for Android developers who want a responsive, phone-shape
 - **Low-Latency Hardware Decoding:** Direct H.264 video streaming decoded using the native browser **WebCodecs API** with zero-copy GPU canvas rendering.
 - **Automated ADB & Device Detection:** Real-time device connection monitoring (`adb track-devices`) and USB debugging setup wizard.
 - **Embedded Scrcpy Server:** Bundled `scrcpy-server-v3.1.jar` pushed via ADB for 60fps streaming without requiring a full scrcpy desktop installation.
+- **Self-Contained Windows Installer:** NSIS installer bundles the app, scrcpy server, and Android platform-tools, so an installed build runs without a separate ADB setup.
 
 ---
 
@@ -20,13 +21,17 @@ PhoneFrame is designed for Android developers who want a responsive, phone-shape
 
 ```
 PhoneFrame/
-├── assets/                       # Embedded binaries & server JARs
+├── assets/                       # Embedded binaries, icons & server JARs
+│   ├── platform-tools/           # Bundled Windows adb + USB driver DLLs
+│   ├── phoneframe-icon.png       # App icon source render
+│   ├── phoneframe-icon.ico       # Window / shortcut / installer icon
 │   ├── scrcpy-server-v3.1.jar    # Official scrcpy server v3.1 JAR
 │   └── scrcpy-server.jar         # Fallback server JAR
 ├── scripts/                      # Developer utility & diagnostic scripts
 │   └── test_stream_diagnostics.ps1 # Standalone PowerShell stream test
 ├── src/
 │   ├── main/                     # Electron Main Process (Node.js)
+│   │   ├── assets.ts             # Dev/packaged asset path resolution
 │   │   ├── adb/                  # ADB device tracking & discovery
 │   │   │   ├── AdbTracker.ts     # Process wrapper for `adb track-devices`
 │   │   │   └── index.ts
@@ -48,6 +53,7 @@ PhoneFrame/
 │       │   ├── tokens.css        # Palette & typography tokens
 │       │   └── global.css
 │       ├── types/                # Ambient TypeScript definitions
+│       │   ├── assets.d.ts       # Static asset module declarations
 │       │   └── electron.d.ts     # Preload API interface definitions
 │       ├── App.tsx               # Primary application state orchestrator
 │       └── main.tsx              # React DOM entry point
@@ -67,10 +73,9 @@ PhoneFrame/
 
 1. **Node.js** (v18.0.0 or later) and **npm**
 2. **Android SDK Platform-Tools (`adb`)**:
-   - Must be installed and accessible either on your system `PATH` or in standard Android SDK locations:
-     - Windows: `%LOCALAPPDATA%\Android\Sdk\platform-tools\adb.exe`
-     - macOS: `~/Library/Android/sdk/platform-tools/adb`
-     - Linux: `~/Android/Sdk/platform-tools/adb`
+   - Windows builds bundle Google's platform-tools in `assets/platform-tools`, so no separate install is required.
+   - For macOS/Linux dev runs, install `adb` on your `PATH` or in a standard SDK location (`~/Library/Android/sdk/platform-tools/adb`, `~/Android/Sdk/platform-tools/adb`).
+   - The `ADB_PATH` environment variable overrides both.
 3. **Android Device**:
    - Developer Options enabled.
    - USB Debugging enabled.
@@ -107,6 +112,18 @@ npm install
   ```bash
   npm start
   ```
+
+### Windows Installer
+
+```bash
+# Build the NSIS installer
+npm run installer
+
+# Or produce only the unpacked app directory
+npm run pack
+```
+
+`npm run installer` writes `release/PhoneFrame-Setup-<version>.exe` — a per-user install with desktop and Start Menu shortcuts. The installer bundles `assets/` into `resources/assets` (scrcpy server, icon, and bundled `adb`), and the packaged app resolves everything relative to the install directory, not the launch directory.
 
 ---
 

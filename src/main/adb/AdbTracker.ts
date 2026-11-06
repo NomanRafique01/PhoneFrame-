@@ -2,6 +2,7 @@ import { spawn, exec, ChildProcessWithoutNullStreams } from "node:child_process"
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { EventEmitter } from "node:events";
+import { assetPath } from "../assets";
 
 export type AdbDeviceState = "device" | "unauthorized" | "offline" | "no-device";
 
@@ -48,6 +49,12 @@ export class AdbTracker extends EventEmitter {
     if (process.env.ADB_PATH) {
       candidatePaths.push(process.env.ADB_PATH);
     }
+
+    // Platform-tools shipped with the installer. Checked before SDK copies so
+    // an installed build always has a working adb without Android Studio.
+    candidatePaths.push(
+      assetPath("platform-tools", process.platform === "win32" ? "adb.exe" : "adb")
+    );
 
     // Windows local Android SDK platform-tools
     if (process.env.LOCALAPPDATA) {

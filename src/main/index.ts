@@ -2,14 +2,14 @@ import { app, BrowserWindow, ipcMain, screen } from "electron";
 import * as path from "node:path";
 import { AdbTracker, type AdbStatusPayload } from "./adb/AdbTracker";
 import { ScrcpyServerManager } from "./mirror/ScrcpyServerManager";
+import { assetPath } from "./assets";
 
 let mainWindow: BrowserWindow | null = null;
 const adbTracker = new AdbTracker();
 let mirrorManager: ScrcpyServerManager | null = null;
 
-// Windows picks the window/taskbar/shortcut icon from this path. Resolved like
-// the scrcpy assets so dev runs and packaged builds share one location.
-const APP_ICON_PATH = path.join(process.cwd(), "assets", "phoneframe-icon.ico");
+// Windows picks the window/taskbar/shortcut icon from this path.
+const APP_ICON_PATH = assetPath("phoneframe-icon.ico");
 
 // The floating phone must stay above every other app; re-assert topmost
 // whenever focus changes, because new apps can otherwise rise above it.

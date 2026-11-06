@@ -1,9 +1,9 @@
 import { execFile, spawn, ChildProcessWithoutNullStreams } from "node:child_process";
 import * as net from "node:net";
-import * as path from "node:path";
 import * as fs from "node:fs";
 import { EventEmitter } from "node:events";
 import { encodeControlInput } from "./controlMessages";
+import { assetPath } from "../assets";
 
 const REMOTE_JAR = "/data/local/tmp/scrcpy-server.jar";
 const SERVER_VERSION = "3.1";
@@ -113,9 +113,9 @@ export class ScrcpyServerManager extends EventEmitter {
 
   public findServerJar(): string | null {
     const candidates = [
-      path.join(process.cwd(), "assets", "scrcpy-server-v3.1.jar"),
-      path.join(process.cwd(), "assets", "scrcpy-server.jar"),
-      path.join(process.cwd(), "assets", "scrcpy-server"),
+      assetPath("scrcpy-server-v3.1.jar"),
+      assetPath("scrcpy-server.jar"),
+      assetPath("scrcpy-server"),
     ];
 
     for (const c of candidates) {
