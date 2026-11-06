@@ -3,7 +3,8 @@ import {
   PhoneFrame,
   FrameControls,
   type PhoneFrameOptions,
-  FRAME_COLOR_DEFINITIONS,
+  DEFAULT_CUSTOM_FRAME_HEX,
+  resolveFrameColor,
 } from "./components/PhoneFrame";
 import { FloatingHUD } from "./components/HUD/FloatingHUD";
 import { FullscreenControls } from "./components/FullscreenControls/FullscreenControls";
@@ -31,6 +32,7 @@ export const App: React.FC = () => {
     outerRadius: 40,
     screenRadius: 26,
     color: "slate",
+    customColorHex: DEFAULT_CUSTOM_FRAME_HEX,
     notchStyle: "punch-center",
     showSpeaker: true,
     showHardwareButtons: true,
@@ -688,7 +690,7 @@ export const App: React.FC = () => {
 
   // Same definition the chassis renders with, so the side key recolors with
   // the frame the moment a new frame color is picked.
-  const currentColorDef = FRAME_COLOR_DEFINITIONS[activeOptions.color] ?? FRAME_COLOR_DEFINITIONS.slate;
+  const currentColorDef = resolveFrameColor(activeOptions.color, activeOptions.customColorHex);
   const activeDevice = adbStatus.activeDevice;
   const isDeviceConnected = adbStatus.state === "device";
   const isStreaming = mirrorState === "running";

@@ -1,6 +1,6 @@
 import React from "react";
 import {
-  FRAME_COLOR_DEFINITIONS,
+  resolveFrameColor,
   type PhoneFrameOptions,
 } from "./types";
 
@@ -19,6 +19,7 @@ export const PhoneFrame: React.FC<PhoneFrameProps> = ({ options, children, dragM
     outerRadius,
     screenRadius,
     color,
+    customColorHex,
     notchStyle,
     showSpeaker,
     showHardwareButtons,
@@ -27,7 +28,7 @@ export const PhoneFrame: React.FC<PhoneFrameProps> = ({ options, children, dragM
     baseScreenWidth,
   } = options;
 
-  const colorDef = FRAME_COLOR_DEFINITIONS[color] ?? FRAME_COLOR_DEFINITIONS.slate;
+  const colorDef = resolveFrameColor(color, customColorHex);
 
   // Calculate pixel-perfect screen dimensions based on device aspect ratio & orientation
   const isPortrait = orientation === "portrait";

@@ -6,6 +6,7 @@ import {
   FRAME_COLOR_DEFINITIONS,
 } from "./types";
 import { CameraIcon, CheckIcon, SlidersIcon } from "../icons";
+import { ColorWheel } from "./ColorWheel";
 
 interface FrameControlsProps {
   options: PhoneFrameOptions;
@@ -78,15 +79,41 @@ export const FrameControls: React.FC<FrameControlsProps> = ({ options, onChange 
                 }}
               >
                 <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                  <span
-                    style={{
-                      width: "12px",
-                      height: "12px",
-                      borderRadius: "50%",
-                      backgroundColor: def.hex,
-                      border: "1px solid rgba(255, 255, 255, 0.2)",
-                    }}
-                  />
+                  {colorKey === "custom" ? (
+                    <span
+                      aria-hidden="true"
+                      style={{
+                        width: "12px",
+                        height: "12px",
+                        borderRadius: "50%",
+                        background:
+                          "conic-gradient(from 0deg, #ff0000, #ffff00, #00ff00, #00ffff, #0000ff, #ff00ff, #ff0000)",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        border: "1px solid rgba(255, 255, 255, 0.2)",
+                      }}
+                    >
+                      <span
+                        style={{
+                          width: "6px",
+                          height: "6px",
+                          borderRadius: "50%",
+                          backgroundColor: options.customColorHex,
+                        }}
+                      />
+                    </span>
+                  ) : (
+                    <span
+                      style={{
+                        width: "12px",
+                        height: "12px",
+                        borderRadius: "50%",
+                        backgroundColor: def.hex,
+                        border: "1px solid rgba(255, 255, 255, 0.2)",
+                      }}
+                    />
+                  )}
                   <span style={{ fontSize: "11px", color: isSelected ? "var(--mist-200)" : "var(--text-muted)" }}>
                     {def.name}
                   </span>
@@ -96,6 +123,12 @@ export const FrameControls: React.FC<FrameControlsProps> = ({ options, onChange 
             );
           })}
         </div>
+        {options.color === "custom" && (
+          <ColorWheel
+            value={options.customColorHex}
+            onChange={(hex) => updateOption("customColorHex", hex)}
+          />
+        )}
       </section>
 
       {/* Notch & Camera Style */}
