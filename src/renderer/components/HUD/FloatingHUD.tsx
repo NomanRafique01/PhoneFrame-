@@ -32,9 +32,10 @@ export const FloatingHUD: React.FC<FloatingHUDProps> = ({
       aria-label="Window and device controls"
       style={{
         display: "inline-flex",
+        flexDirection: "column",
         alignItems: "center",
         gap: "4px",
-        padding: "4px 6px",
+        padding: "6px 4px",
         backgroundColor: "rgba(17, 33, 45, 0.94)",
         backdropFilter: "blur(12px)",
         WebkitBackdropFilter: "blur(12px)",
@@ -93,10 +94,10 @@ export const FloatingHUD: React.FC<FloatingHUDProps> = ({
       {/* Divider */}
       <div
         style={{
-          width: "1px",
-          height: "20px",
+          width: "20px",
+          height: "1px",
           backgroundColor: "var(--border)",
-          margin: "0 2px",
+          margin: "2px 0",
         }}
       />
 

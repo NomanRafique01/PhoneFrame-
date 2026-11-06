@@ -215,8 +215,6 @@ export const App: React.FC = () => {
   return (
     <div
       className="floating-phone-root"
-      onMouseEnter={handleMouseEnter}
-      onMouseLeave={handleMouseLeave}
       style={{
         display: "flex",
         alignItems: "center",
@@ -241,17 +239,24 @@ export const App: React.FC = () => {
         }}
       >
         {/* Phone + HUD wrapper (shrink-fits the frame so the HUD can anchor to it) */}
-        <div style={{ position: "relative", display: "flex" }}>
+        <div
+          style={{ position: "relative", display: "flex" }}
+          onMouseEnter={handleMouseEnter}
+          onMouseLeave={handleMouseLeave}
+        >
           {/* Floating Contextual HUD (Hover revealed or always visible when inspector open) */}
           <div
             style={{
               position: "absolute",
-              top: "-52px",
-              left: 0,
+              top: "50%",
+              right: "calc(100% + 10px)",
+              left: "auto",
               zIndex: 100,
               opacity: isHovered || showInspector ? 1 : 0,
               pointerEvents: isHovered || showInspector ? "auto" : "none",
-              transform: isHovered || showInspector ? "translateY(0)" : "translateY(-6px)",
+              transform: isHovered || showInspector
+                ? "translateY(-50%) translateX(0)"
+                : "translateY(-50%) translateX(-6px)",
               transition: "opacity 160ms cubic-bezier(0.16, 1, 0.3, 1), transform 160ms cubic-bezier(0.16, 1, 0.3, 1)",
             }}
           >
