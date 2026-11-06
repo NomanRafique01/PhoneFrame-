@@ -1,4 +1,4 @@
-export type FrameColor = "midnight" | "navy" | "slate" | "steel" | "mist" | "silver";
+export type FrameColor = "midnight" | "navy" | "slate" | "steel" | "mist" | "silver" | "crimson" | "ember" | "forest" | "violet";
 
 export type NotchStyle = "punch-center" | "punch-left" | "pill" | "waterdrop" | "none";
 
@@ -54,6 +54,34 @@ export const FRAME_COLOR_DEFINITIONS: Record<FrameColor, FrameColorDefinition> =
     hex: "#CCD0CF",
     borderHex: "#FFFFFF",
     highlightHex: "rgba(255, 255, 255, 0.65)",
+  },
+  crimson: {
+    id: "crimson",
+    name: "Crimson",
+    hex: "#7A1626",
+    borderHex: "#A63A4B",
+    highlightHex: "rgba(255, 255, 255, 0.16)",
+  },
+  ember: {
+    id: "ember",
+    name: "Ember",
+    hex: "#8A3A12",
+    borderHex: "#B85C2E",
+    highlightHex: "rgba(255, 255, 255, 0.16)",
+  },
+  forest: {
+    id: "forest",
+    name: "Forest",
+    hex: "#14382B",
+    borderHex: "#2C5A48",
+    highlightHex: "rgba(255, 255, 255, 0.14)",
+  },
+  violet: {
+    id: "violet",
+    name: "Violet",
+    hex: "#3B2456",
+    borderHex: "#5C4480",
+    highlightHex: "rgba(255, 255, 255, 0.16)",
   },
 };
 
