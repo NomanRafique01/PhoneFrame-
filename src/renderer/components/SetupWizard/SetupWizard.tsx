@@ -40,6 +40,7 @@ interface SetupWizardProps {
   onDeviceNameChange?: (name: string) => void;
   onComplete?: () => void;
   onDismiss?: () => void;
+  occupiedSerials?: string[];
 }
 
 export const SetupWizard: React.FC<SetupWizardProps> = ({
@@ -49,6 +50,7 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
   onDeviceNameChange,
   onComplete,
   onDismiss,
+  occupiedSerials = [],
 }) => {
   const [mode, setMode] = useState<ConnectionMode | null>(null);
   const [isNamingStep, setIsNamingStep] = useState(false);
@@ -56,6 +58,7 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
   const [customDeviceName, setCustomDeviceName] = useState<string>("");
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
   const [tapCounter, setTapCounter] = useState(0);
+  const [discoveredDevice, setDiscoveredDevice] = useState<AdbDeviceInfo | null>(null);
 
   // Wireless Wi-Fi switch states
   const [isScanning, setIsScanning] = useState(false);
@@ -64,42 +67,23 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
   const [switchResult, setSwitchResult] = useState<{ ip?: string; serial?: string } | null>(null);
   const [connectionFeedback, setConnectionFeedback] = useState<string | null>(null);
 
-  // Track previous ADB state so we only auto-advance when hardware state transitions,
-  // allowing the user to freely click Back to previous steps without being trapped on Step 5.
-  const prevAdbStateRef = React.useRef(adbStatus?.state);
-
+  // Manual-detection mode: do NOT automatically jump to Ready when an ADB device is plugged in.
+  // Detect only when the user explicitly clicks "Search for Phone" / scan.
+  // If the currently discovered device goes offline, clear it cleanly.
   useEffect(() => {
-    if (!adbStatus || mode === null) return;
-    const prevState = prevAdbStateRef.current;
-    prevAdbStateRef.current = adbStatus.state;
-
-    // Only react when ADB state transitions (e.g. unauthorized -> device, or no-device -> device)
-    if (prevState !== adbStatus.state) {
-      if (isNamingStep) {
-        // Do not interrupt active naming step if device arrives; name step will proceed to ready
-        return;
-      }
-      if (adbStatus.state === "unauthorized" && mode === "usb") {
-        setCurrentStepIndex(3); // Step 4: RSA Auth
-      } else if (adbStatus.state === "device") {
-        if (mode === "usb") {
-          setCurrentStepIndex(4); // Step 5: Ready
-        } else if (adbStatus.activeDevice?.isWireless) {
-          setHasSwitched(true);
-          setSwitchResult({ serial: adbStatus.activeDevice.serial });
-          setCurrentStepIndex(3); // Ready in Wi-Fi mode
-        }
-      } else if (adbStatus.state === "no-device") {
-        // Smoothly return directly to the mode selection screen on disconnect
-        setMode(null);
-        setIsNamingStep(false);
-        setCurrentStepIndex(0);
+    if (discoveredDevice) {
+      const stillOnline = adbStatus?.devices?.some(
+        (d) => d.serial === discoveredDevice.serial && d.state === "device"
+      );
+      if (!stillOnline) {
+        setDiscoveredDevice(null);
+        setConnectionFeedback("Device disconnected. Click 'Search for Phone' to scan for an available device.");
       }
     }
-  }, [adbStatus?.state, adbStatus?.activeDevice?.isWireless, mode, isNamingStep]);
+  }, [adbStatus?.devices, discoveredDevice]);
 
-  const activeDevice = adbStatus?.activeDevice;
-  const isDeviceOnline = adbStatus?.state === "device";
+  const activeDevice = discoveredDevice;
+  const isDeviceOnline = Boolean(discoveredDevice && discoveredDevice.state === "device");
 
   // USB Mode Steps (Classic flow)
   const usbSteps: WizardStep[] = [
@@ -214,13 +198,13 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
 
   const handleNext = () => {
     if (isReady) {
-      onComplete?.();
+      onComplete?.(activeDevice?.serial);
     } else if (mode === "usb" && currentStep?.id === "ready" && (!isDeviceOnline || activeDevice?.isWireless)) {
       handleSearchPhone();
     } else if (currentStepIndex < steps.length - 1) {
       setCurrentStepIndex(currentStepIndex + 1);
     } else {
-      onComplete?.();
+      onComplete?.(activeDevice?.serial);
     }
   };
 
@@ -275,23 +259,34 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
     try {
       const status = await window.electronAPI.getAdbStatus();
       await new Promise((r) => setTimeout(r, 600));
-      if (status?.state === "device" && status.activeDevice) {
-        if (status.activeDevice.isWireless) {
+      const available = (status?.devices || []).filter(
+        (d) => !occupiedSerials.includes(d.serial)
+      );
+      const target = available.find((d) => d.state === "device") || available[0];
+      if (target && target.state === "device") {
+        setDiscoveredDevice(target);
+        if (target.isWireless) {
           if (mode === "wifi") {
             setHasSwitched(true);
-            setSwitchResult({ serial: status.activeDevice.serial });
+            setSwitchResult({ serial: target.serial });
             setCurrentStepIndex(3); // Ready in Wi-Fi mode
           }
-          setConnectionFeedback(`Wireless device online: ${status.activeDevice.serial}`);
+          setConnectionFeedback(`Wireless device online: ${target.serial}`);
         } else {
           if (mode === "usb") {
             setCurrentStepIndex(4); // Ready in USB mode
           }
-          setConnectionFeedback(`Device detected: ${status.activeDevice.model || status.activeDevice.serial}`);
+          setConnectionFeedback(`Device detected on port: ${target.model || target.serial}`);
         }
-      } else if (status?.state === "unauthorized") {
+      } else if (target && target.state === "unauthorized") {
+        setDiscoveredDevice(target);
+        setCurrentStepIndex(3); // RSA Auth
         setConnectionFeedback("Device detected: authorize ADB prompt on phone screen.");
+      } else if (occupiedSerials.length > 0 && (status?.devices?.length || 0) > 0) {
+        setDiscoveredDevice(null);
+        setConnectionFeedback("Connected USB device is in use by another screen. Connect phone to another USB port or Wi-Fi.");
       } else {
+        setDiscoveredDevice(null);
         setConnectionFeedback("No device found. Connect phone with USB and enable USB debugging.");
       }
     } catch {
@@ -1118,7 +1113,7 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
 
                 <button
                   type="button"
-                  onClick={() => onComplete?.()}
+                  onClick={() => onComplete?.(activeDevice?.serial)}
                   style={{
                     display: "flex",
                     alignItems: "center",

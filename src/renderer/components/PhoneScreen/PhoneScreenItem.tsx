@@ -29,6 +29,7 @@ export interface PhoneScreenItemProps {
   canAddScreen: boolean;
   canCloseScreen: boolean;
   adbStatus: AdbStatusPayload;
+  occupiedSerials?: string[];
   isInspecting: boolean;
   isBackgrounded?: boolean;
   isFullscreen: boolean;
@@ -40,6 +41,8 @@ export interface PhoneScreenItemProps {
   onUpdateName: (name: string) => void;
   onOptionsChange: (opts: PhoneFrameOptions) => void;
   onScaleChange: (scale: number) => void;
+  onSerialAssigned?: (serial: string) => void;
+  onSerialReleased?: () => void;
   onDragStart: (e: React.PointerEvent<HTMLDivElement>) => void;
   onDragMove: (e: React.PointerEvent<HTMLDivElement>) => void;
   onDragEnd: (e: React.PointerEvent<HTMLDivElement>) => void;
@@ -67,6 +70,7 @@ export const PhoneScreenItem: React.FC<PhoneScreenItemProps> = ({
   canAddScreen,
   canCloseScreen,
   adbStatus,
+  occupiedSerials = [],
   isInspecting,
   isBackgrounded = false,
   isFullscreen,
@@ -78,6 +82,8 @@ export const PhoneScreenItem: React.FC<PhoneScreenItemProps> = ({
   onUpdateName,
   onOptionsChange,
   onScaleChange,
+  onSerialAssigned,
+  onSerialReleased,
   onDragStart,
   onDragMove,
   onDragEnd,
@@ -135,6 +141,7 @@ export const PhoneScreenItem: React.FC<PhoneScreenItemProps> = ({
 
       if (wasActive && isEnded) {
         setIsWizardActive(true);
+        onSerialReleased?.();
         showSessionNotice(payload.state === "error" ? "Connection failed" : "Stream stopped");
       }
     }, screenId);
@@ -177,9 +184,10 @@ export const PhoneScreenItem: React.FC<PhoneScreenItemProps> = ({
     }, ORIENTATION_SETTLE_MS);
   };
 
-  const handleStartMirror = async () => {
-    const serial = adbStatus.activeDevice?.serial;
+  const handleStartMirror = async (chosenSerial?: string) => {
+    const serial = chosenSerial || adbStatus.activeDevice?.serial;
     if (!serial || !window.electronAPI) return;
+    onSerialAssigned?.(serial);
     setMirrorState("starting");
     setIsWizardActive(false);
     try {
@@ -187,10 +195,12 @@ export const PhoneScreenItem: React.FC<PhoneScreenItemProps> = ({
       if (!ok) {
         setMirrorState("error");
         setIsWizardActive(true);
+        onSerialReleased?.();
       }
     } catch {
       setMirrorState("error");
       setIsWizardActive(true);
+      onSerialReleased?.();
     }
   };
 
@@ -199,6 +209,7 @@ export const PhoneScreenItem: React.FC<PhoneScreenItemProps> = ({
     await window.electronAPI.stopMirror(screenId);
     setMirrorState("stopped");
     setIsWizardActive(true);
+    onSerialReleased?.();
   };
 
   const handleRotate = () => {
@@ -438,6 +449,7 @@ export const PhoneScreenItem: React.FC<PhoneScreenItemProps> = ({
             {isWizardActive ? (
               <SetupWizard
                 adbStatus={adbStatus}
+                occupiedSerials={occupiedSerials}
                 notice={sessionNotice}
                 deviceName={name}
                 onDeviceNameChange={onUpdateName}
@@ -523,6 +535,8 @@ export const PhoneScreenItem: React.FC<PhoneScreenItemProps> = ({
                   >
                     {isDeviceConnected
                       ? `${activeDevice?.model ?? "ANDROID DEVICE"} ONLINE`
+                      : occupiedSerials.length > 0
+                      ? "USB PORT OCCUPIED"
                       : "PHONE NOT CONNECTED"}
                   </div>
                   <p
@@ -534,7 +548,9 @@ export const PhoneScreenItem: React.FC<PhoneScreenItemProps> = ({
                     }}
                   >
                     {isDeviceConnected
-                      ? "Device authorized. Click below to start stream."
+                      ? `Device ready (${activeDevice?.isWireless ? "Wi-Fi" : "Independent Port"}). Click below to start stream.`
+                      : occupiedSerials.length > 0
+                      ? "Another screen is using this USB port. Connect a phone on another USB port or Wi-Fi."
                       : "Plug in device or use Wi-Fi mode."}
                   </p>
                 </div>

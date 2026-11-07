@@ -25,6 +25,7 @@ export interface ScreenInstance {
   isHovered: boolean;
   dragMode: boolean;
   isScreenInteracting: boolean;
+  assignedSerial?: string | null;
 }
 
 interface Rect {
@@ -218,19 +219,20 @@ export const App: React.FC = () => {
       const unsub = window.electronAPI.onAdbStatusChange((status) => {
         setAdbStatus(status);
 
-        // Auto-adapt aspect ratio on primary screen if dimensions available
-        if (status.state === "device" && status.activeDevice?.width && status.activeDevice?.height) {
-          const w = status.activeDevice.width;
-          const h = status.activeDevice.height;
-          const gcd = (a: number, b: number): number => (b === 0 ? a : gcd(b, a % b));
-          const divisor = gcd(w, h);
-          const ratioW = Math.round((w / divisor) * 10) / 10;
-          const ratioH = Math.round((h / divisor) * 10) / 10;
+        // Auto-adapt aspect ratio per device dimensions
+        status.devices.forEach((device) => {
+          if (device.state === "device" && device.width && device.height) {
+            const w = device.width;
+            const h = device.height;
+            const gcd = (a: number, b: number): number => (b === 0 ? a : gcd(b, a % b));
+            const divisor = gcd(w, h);
+            const ratioW = Math.round((w / divisor) * 10) / 10;
+            const ratioH = Math.round((h / divisor) * 10) / 10;
 
-          setScreens((prev) =>
-            prev.map((s, idx) =>
-              idx === 0
-                ? {
+            setScreens((prev) =>
+              prev.map((s) => {
+                if (s.assignedSerial === device.serial || (s.id === "primary" && !s.assignedSerial)) {
+                  return {
                     ...s,
                     options: {
                       ...s.options,
@@ -239,11 +241,13 @@ export const App: React.FC = () => {
                         height: Math.max(ratioW, ratioH),
                       },
                     },
-                  }
-                : s
-            )
-          );
-        }
+                  };
+                }
+                return s;
+              })
+            );
+          }
+        });
       });
 
       return () => unsub();
@@ -304,42 +308,19 @@ export const App: React.FC = () => {
     window.electronAPI?.close();
   };
 
-  // Add screen: up to 4 total
+  // Add screen: up to 4 total, cascading with slight space and natural overlay
   const handleAddScreen = () => {
     if (screens.length >= 4) return;
     const newIndex = screens.length + 1;
     const newId = `screen-${Date.now()}`;
     const maxZ = screens.reduce((max, s) => Math.max(max, s.zIndex), 0);
 
-    let newOffset = { x: 0, y: 0 };
-    let updatedScreens = [...screens];
-
-    if (screens.length === 1) {
-      const primary = screens[0];
-      // If primary is near center, balance both screens side-by-side in separate spaces
-      if (Math.abs(primary.offset.x) < 30 && Math.abs(primary.offset.y) < 30) {
-        updatedScreens[0] = { ...primary, offset: { x: -200, y: 0 } };
-        newOffset = { x: 200, y: 0 };
-      } else {
-        newOffset = { x: primary.offset.x + 380, y: primary.offset.y };
-      }
-    } else if (screens.length === 2) {
-      // 3 screens: if first 2 are at -200 and +200, balance as -380, 0, +380
-      if (
-        Math.abs(screens[0].offset.x - -200) < 30 &&
-        Math.abs(screens[1].offset.x - 200) < 30
-      ) {
-        updatedScreens[0] = { ...screens[0], offset: { x: -380, y: 0 } };
-        updatedScreens[1] = { ...screens[1], offset: { x: 0, y: 0 } };
-        newOffset = { x: 380, y: 0 };
-      } else {
-        const last = screens[screens.length - 1];
-        newOffset = { x: last.offset.x + 380, y: last.offset.y };
-      }
-    } else if (screens.length === 3) {
-      const last = screens[screens.length - 1];
-      newOffset = { x: last.offset.x + 380, y: last.offset.y };
-    }
+    const lastScreen = screens[screens.length - 1];
+    // Natural cascade offset: slight space by overlaying (+60px X, +40px Y)
+    const newOffset = {
+      x: lastScreen ? lastScreen.offset.x + 60 : 60,
+      y: lastScreen ? lastScreen.offset.y + 40 : 40,
+    };
 
     const newScreen: ScreenInstance = {
       id: newId,
@@ -367,7 +348,7 @@ export const App: React.FC = () => {
       isScreenInteracting: false,
     };
 
-    setScreens([...updatedScreens, newScreen]);
+    setScreens((prev) => [...prev, newScreen]);
   };
 
   // Close screen: primary cannot be closed if it's the only one
@@ -636,6 +617,34 @@ export const App: React.FC = () => {
           const isUnderneath = underneathScreens.has(screen.id);
           const screenOpacity = isBackgrounded ? 0.40 : isUnderneath ? 0.65 : 1;
 
+          // Find serials occupied by other screens
+          const otherOccupiedSerials = screens
+            .filter((s) => s.id !== screen.id && s.assignedSerial)
+            .map((s) => s.assignedSerial as string);
+
+          // Available devices that are NOT occupied by any other screen
+          const availableDevices = adbStatus.devices.filter(
+            (d) => !otherOccupiedSerials.includes(d.serial)
+          );
+
+          // Find device for this screen:
+          // 1. If screen already has an assignedSerial that is still available, use it.
+          // 2. Otherwise pick an unoccupied device from availableDevices
+          let currentDevice = availableDevices.find((d) => d.serial === screen.assignedSerial);
+          if (!currentDevice && availableDevices.length > 0) {
+            const allAssignedSerials = new Set(
+              screens.map((s) => s.assignedSerial).filter(Boolean)
+            );
+            const unclaimedDevices = availableDevices.filter((d) => !allAssignedSerials.has(d.serial));
+            currentDevice = unclaimedDevices[0] || availableDevices[0];
+          }
+
+          const scopedAdbStatus: AdbStatusPayload = {
+            state: currentDevice ? currentDevice.state : "no-device",
+            devices: availableDevices,
+            activeDevice: currentDevice || null,
+          };
+
           return (
             <PhoneScreenItem
               key={screen.id}
@@ -653,7 +662,18 @@ export const App: React.FC = () => {
               totalScreens={screens.length}
               canAddScreen={screens.length < 4}
               canCloseScreen={screens.length > 1}
-              adbStatus={adbStatus}
+              adbStatus={scopedAdbStatus}
+              occupiedSerials={otherOccupiedSerials}
+              onSerialAssigned={(serial) => {
+                setScreens((prev) =>
+                  prev.map((s) => (s.id === screen.id ? { ...s, assignedSerial: serial } : s))
+                );
+              }}
+              onSerialReleased={() => {
+                setScreens((prev) =>
+                  prev.map((s) => (s.id === screen.id ? { ...s, assignedSerial: null } : s))
+                );
+              }}
               isInspecting={isInspectingThis}
               isBackgrounded={isBackgrounded}
               isFullscreen={isFullscreen}
