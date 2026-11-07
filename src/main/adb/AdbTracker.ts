@@ -36,6 +36,12 @@ export class AdbTracker extends EventEmitter {
   private trackProcess: ChildProcessWithoutNullStreams | null = null;
   private pollInterval: NodeJS.Timeout | null = null;
   private running = false;
+  // A shell round trip every 3 s competes with the video relay on Wi-Fi and
+  // shows up as periodic stutter, so the safety poll pauses while mirroring.
+  private streaming = false;
+  // Physical screen size never changes for a serial; querying it on every
+  // poll would otherwise run `wm size` over the same wireless link forever.
+  private screenSizes = new Map<string, { width: number; height: number }>();
   private currentStatus: AdbStatusPayload = {
     state: "no-device",
     devices: [],
@@ -44,6 +50,11 @@ export class AdbTracker extends EventEmitter {
 
   constructor() {
     super();
+  }
+
+  /** Called by the main process whenever a mirror session starts or stops. */
+  public setStreamingActive(active: boolean): void {
+    this.streaming = active;
   }
 
   /**
@@ -138,9 +149,10 @@ export class AdbTracker extends EventEmitter {
     this.runDevicesPoll(adb);
     this.startTrackDevices(adb);
 
-    // Safety poll: catches anything the event stream misses.
+    // Safety poll: catches anything the event stream misses. Skipped while a
+    // stream is live; track-devices still reports disconnects immediately.
     this.pollInterval = setInterval(() => {
-      if (this.running) this.runDevicesPoll(adb);
+      if (this.running && !this.streaming) this.runDevicesPoll(adb);
     }, 3000);
   }
 
@@ -550,10 +562,12 @@ export class AdbTracker extends EventEmitter {
           active = authorizedDevice;
           // Retrieve screen dimensions if not yet populated
           if (!active.width || !active.height) {
-            const size = await this.getScreenSize(active.serial);
+            const cached = this.screenSizes.get(active.serial);
+            const size = cached ?? (await this.getScreenSize(active.serial));
             if (size) {
               active.width = size.width;
               active.height = size.height;
+              this.screenSizes.set(active.serial, size);
             }
           }
         } else if (unauthorizedDevice) {

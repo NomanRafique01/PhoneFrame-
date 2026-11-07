@@ -27,7 +27,10 @@ const STREAM_MUSIC = "3";
 // encoder has to stay well below what that tunnel can sustain or the socket
 // buffers fill up and every frame (and input event) arrives late.
 const USB_STREAM_PROFILE = { maxSize: 1440, bitRate: 8_000_000 };
-const WIFI_STREAM_PROFILE = { maxSize: 1024, bitRate: 4_000_000, maxFps: 60 };
+// scrcpy's own remedy for lossy wireless links: 2 Mbps at 1024px. Staying far
+// below link capacity lets TCP drain retransmission stalls instead of letting
+// them accumulate into permanent video delay.
+const WIFI_STREAM_PROFILE = { maxSize: 1024, bitRate: 2_000_000, maxFps: 60 };
 
 function isWirelessSerial(serial: string): boolean {
   return serial.includes(":") || serial.includes("._adb-tls-connect._tcp");
@@ -92,6 +95,11 @@ export class ScrcpyServerManager extends EventEmitter {
   private videoWidth: number = 0;
   private videoHeight: number = 0;
   private codecId: string = "h264";
+
+  // Compares device PTS against packet arrival to expose wireless transport
+  // buffering (TCP retransmit stalls show up as a growing backlog).
+  private latencyAnchor: { ptsUs: number; arrivalUs: number } | null = null;
+  private lastBacklogLogUs: number = 0;
 
   // Audio stream parser state
   private audioRxBuf: Buffer = Buffer.alloc(0);
@@ -875,6 +883,8 @@ export class ScrcpyServerManager extends EventEmitter {
 
       const ptsLow = this.rxBuf.readUInt32BE(4);
       const packetSize = this.rxBuf.readUInt32BE(8);
+      // The top two bits are flags; the remaining 62 bits are the device PTS.
+      const ptsUs = (this.rxBuf.readUInt32BE(0) & 0x3fffffff) * 0x100000000 + ptsLow;
 
       // Check if this is a 12-byte session resize event:
       // (ptsLow carries the new width > 0, packetSize carries new height > 0)
@@ -915,6 +925,8 @@ export class ScrcpyServerManager extends EventEmitter {
         continue;
       }
 
+      this.trackTransportBacklog(ptsUs);
+
       let nalData = payload;
       if (isKey) {
         if (this.savedConfig) {
@@ -930,6 +942,29 @@ export class ScrcpyServerManager extends EventEmitter {
 
       this.emit("video-chunk", out);
     }
+  }
+
+  /**
+   * Estimates how far the stream is behind real time by comparing each frame's
+   * device PTS with when its bytes arrived. A backlog that keeps climbing means
+   * the transport is buffering faster than it drains (wireless stall).
+   */
+  private trackTransportBacklog(ptsUs: number): void {
+    if (ptsUs <= 0) return;
+    const nowUs = performance.now() * 1000;
+
+    if (!this.latencyAnchor) {
+      this.latencyAnchor = { ptsUs, arrivalUs: nowUs };
+      return;
+    }
+
+    const expectedArrivalUs =
+      this.latencyAnchor.arrivalUs + (ptsUs - this.latencyAnchor.ptsUs);
+    const backlogMs = (nowUs - expectedArrivalUs) / 1000;
+
+    if (nowUs - this.lastBacklogLogUs < 5_000_000) return;
+    this.lastBacklogLogUs = nowUs;
+    console.log(`[ScrcpyServerManager] Transport backlog: ${backlogMs.toFixed(0)} ms`);
   }
 
   /** The stream header is the first real proof that mirroring is live. */
@@ -1006,6 +1041,8 @@ export class ScrcpyServerManager extends EventEmitter {
     this.savedConfig = null;
     this.videoWidth = 0;
     this.videoHeight = 0;
+    this.latencyAnchor = null;
+    this.lastBacklogLogUs = 0;
     this.audioRxBuf = Buffer.alloc(0);
     this.audioHeaderParsed = false;
     this.audioDisabled = false;

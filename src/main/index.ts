@@ -71,6 +71,12 @@ function getOrCreateMirrorSession(screenId: string = "primary"): ScrcpyServerMan
         mainWindow.webContents.send(`mirror:state-changed:${screenId}`, { screenId, state, error: err });
         mainWindow.webContents.send("mirror:state-changed", { screenId, state, error: err });
       }
+      // Keep periodic ADB property/shell queries off the link while streaming.
+      const anyStreaming = [...mirrorSessions.values()].some((s) => {
+        const sessionState = s.getState();
+        return sessionState === "running" || sessionState === "starting";
+      });
+      adbTracker.setStreamingActive(anyStreaming);
     });
   }
   return session;
