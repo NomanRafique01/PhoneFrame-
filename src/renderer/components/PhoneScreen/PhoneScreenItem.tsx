@@ -444,10 +444,6 @@ export const PhoneScreenItem: React.FC<PhoneScreenItemProps> = ({
           isPinned={isPinned}
           onTogglePin={onTogglePin}
           onRotate={handleRotate}
-          isFullscreen={false}
-          fullscreenAvailable={false}
-          fullscreenBlockedReason={null}
-          onToggleFullscreen={() => {}}
           audioMuted={audioMuted}
           onToggleAudio={() => setAudioMuted((m) => !m)}
           audioVolume={audioVolume}

@@ -14,6 +14,13 @@ interface PhoneFrameProps {
 }
 
 export const PhoneFrame: React.FC<PhoneFrameProps> = ({ options, children, dragMode, cursor }) => {
+  // Every mounted frame needs its own paint server and mask ids. Shared ids
+  // make all but the first frame resolve `url(#...)` to that frame's geometry,
+  // so resizing or recoloring one phone would redraw the rest with its values.
+  const instanceId = React.useId().replace(/[^a-zA-Z0-9_-]/g, "");
+  const gradientId = `chassis-gradient-${instanceId}`;
+  const maskId = `bezel-mask-${instanceId}`;
+
   const {
     bezelWidth,
     outerRadius,
@@ -79,14 +86,14 @@ export const PhoneFrame: React.FC<PhoneFrameProps> = ({ options, children, dragM
       >
         <defs>
           {/* Subtle directional bevel gradient (fully opaque — no desktop bleed-through) */}
-          <linearGradient id="chassisGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+          <linearGradient id={gradientId} x1="0%" y1="0%" x2="100%" y2="100%">
             <stop offset="0%" stopColor={colorDef.hex} stopOpacity="1" />
             <stop offset="50%" stopColor={colorDef.hex} stopOpacity="1" />
             <stop offset="100%" stopColor={colorDef.borderHex} stopOpacity="1" />
           </linearGradient>
 
           {/* Mask to cut out the inner screen hole so drag area is bezel-only */}
-          <mask id="bezelMask">
+          <mask id={maskId}>
             <rect x="0" y="0" width={totalWidth} height={totalHeight} rx={outerRadius} ry={outerRadius} fill="white" />
             <rect
               x={bezelWidth}
@@ -136,8 +143,8 @@ export const PhoneFrame: React.FC<PhoneFrameProps> = ({ options, children, dragM
           height={totalHeight}
           rx={outerRadius}
           ry={outerRadius}
-          fill="url(#chassisGradient)"
-          mask="url(#bezelMask)"
+          fill={`url(#${gradientId})`}
+          mask={`url(#${maskId})`}
         />
 
         {/* Outer Chamfer Edge Highlight */}
@@ -151,7 +158,7 @@ export const PhoneFrame: React.FC<PhoneFrameProps> = ({ options, children, dragM
           fill="none"
           stroke={colorDef.highlightHex}
           strokeWidth="1"
-          mask="url(#bezelMask)"
+          mask={`url(#${maskId})`}
         />
 
         {/* Inner Screen Bezel Rim Border */}
