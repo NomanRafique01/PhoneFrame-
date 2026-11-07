@@ -1,6 +1,8 @@
 const OPUS_SAMPLE_RATE = 48000;
 const OPUS_CHANNELS = 2;
-const PLAYBACK_LEAD_SECONDS = 0.08;
+// Matches scrcpy's default audio buffer: enough headroom for Wi-Fi jitter
+// without letting sound drift far behind the video.
+const PLAYBACK_LEAD_SECONDS = 0.05;
 
 /**
  * Decodes the raw Opus packets forwarded by scrcpy-server and schedules them

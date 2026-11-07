@@ -22,6 +22,17 @@ const PUSH_TIMEOUT_MS = 30000;
 const VOLUME_DEBOUNCE_MS = 60;
 const STREAM_MUSIC = "3";
 
+// USB carries the stream on a dedicated bulk endpoint, but Wi-Fi runs it
+// through adb's TCP tunnel, which is shared with audio and control. The
+// encoder has to stay well below what that tunnel can sustain or the socket
+// buffers fill up and every frame (and input event) arrives late.
+const USB_STREAM_PROFILE = { maxSize: 1440, bitRate: 8_000_000 };
+const WIFI_STREAM_PROFILE = { maxSize: 1024, bitRate: 4_000_000, maxFps: 60 };
+
+function isWirelessSerial(serial: string): boolean {
+  return serial.includes(":") || serial.includes("._adb-tls-connect._tcp");
+}
+
 export interface MirrorOptions {
   serial: string;
   maxSize?: number;
@@ -319,8 +330,17 @@ export class ScrcpyServerManager extends EventEmitter {
   }
 
   private spawnServer(session: number, serial: string, options: MirrorOptions): void {
-    const maxSize = options.maxSize || 1440;
-    const bitRate = options.bitRate || 8000000;
+    const wireless = isWirelessSerial(serial);
+    const profile = wireless ? WIFI_STREAM_PROFILE : USB_STREAM_PROFILE;
+    const maxSize = options.maxSize ?? profile.maxSize;
+    const bitRate = options.bitRate ?? profile.bitRate;
+    const maxFps = options.maxFps ?? (wireless ? WIFI_STREAM_PROFILE.maxFps : 0);
+
+    console.log(
+      `[ScrcpyServerManager] Stream profile: ${wireless ? "Wi-Fi" : "USB"} ` +
+        `(${maxSize}px, ${(bitRate / 1_000_000).toFixed(1)} Mbps${maxFps > 0 ? `, ${maxFps} fps` : ""})`
+    );
+
     const serverArgs = [
       "-s", serial,
       "shell",
@@ -339,8 +359,8 @@ export class ScrcpyServerManager extends EventEmitter {
       `video_bit_rate=${bitRate}`,
     ];
 
-    if (options.maxFps) {
-      serverArgs.push(`max_fps=${options.maxFps}`);
+    if (maxFps > 0) {
+      serverArgs.push(`max_fps=${maxFps}`);
     }
 
     // Keep the device speaker playing while its audio is captured, so muting
@@ -407,6 +427,9 @@ export class ScrcpyServerManager extends EventEmitter {
     const port = this.localPort;
     const socket = net.createConnection({ host: "127.0.0.1", port });
     this.videoSocket = socket;
+    // Frames are small relative to a TCP segment; Nagle would hold the tail of
+    // each packet until the peer acks, which reads as constant extra latency.
+    socket.setNoDelay(true);
     let attemptDone = false;
     let gotData = false;
 

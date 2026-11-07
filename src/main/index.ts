@@ -45,10 +45,9 @@ function getOrCreateMirrorSession(screenId: string = "primary"): ScrcpyServerMan
 
     session.on("video-chunk", (chunk: Buffer) => {
       if (mainWindow?.webContents && !mainWindow.webContents.isDestroyed()) {
+        // Renderers always subscribe to the screen-scoped channel; mirroring a
+        // 60 fps stream to a second channel doubled IPC copies for no consumer.
         mainWindow.webContents.send(`video:chunk:${screenId}`, chunk);
-        if (screenId === "primary") {
-          mainWindow.webContents.send("video:chunk", chunk);
-        }
       }
     });
 
@@ -64,9 +63,6 @@ function getOrCreateMirrorSession(screenId: string = "primary"): ScrcpyServerMan
     session.on("audio-chunk", (chunk: Buffer) => {
       if (mainWindow?.webContents && !mainWindow.webContents.isDestroyed()) {
         mainWindow.webContents.send(`audio:chunk:${screenId}`, chunk);
-        if (screenId === "primary") {
-          mainWindow.webContents.send("audio:chunk", chunk);
-        }
       }
     });
 

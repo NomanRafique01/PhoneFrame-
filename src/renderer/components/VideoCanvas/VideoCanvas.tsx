@@ -88,6 +88,11 @@ export const VideoCanvas: React.FC<VideoCanvasProps> = ({
   onStreamSizeChange,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const ctxRef = useRef<CanvasRenderingContext2D | null>(null);
+  // Frames arrive in bursts whenever the link stalls, so decoded output is
+  // coalesced into a single slot and painted at most once per display refresh.
+  const pendingFrameRef = useRef<VideoFrame | null>(null);
+  const paintRafRef = useRef<number | null>(null);
   const decoderRef = useRef<VideoDecoder | null>(null);
   const isConfiguredRef = useRef<boolean>(false);
   const currentCodecRef = useRef<string>("avc1.420020");
@@ -105,6 +110,51 @@ export const VideoCanvas: React.FC<VideoCanvasProps> = ({
   const pressedKeysRef = useRef<Map<string, number>>(new Map());
   const wheelHandlerRef = useRef<(event: WheelEvent) => void>(() => {});
 
+  const paintPendingFrame = () => {
+    paintRafRef.current = null;
+    const frame = pendingFrameRef.current;
+    pendingFrameRef.current = null;
+    if (!frame) return;
+
+    try {
+      const w = frame.displayWidth;
+      const h = frame.displayHeight;
+      const canvas = canvasRef.current;
+      const ctx = ctxRef.current;
+
+      // Match the canvas backing store to the native frame size (fixes
+      // blurriness caused by rendering high-res frames onto a low-res canvas).
+      if (canvas && w > 0 && h > 0 && (canvas.width !== w || canvas.height !== h)) {
+        canvas.width = w;
+        canvas.height = h;
+      }
+      if (ctx && w > 0 && h > 0) {
+        ctx.drawImage(frame, 0, 0, w, h);
+      }
+
+      if (
+        w > 0 &&
+        h > 0 &&
+        (lastStreamSizeRef.current.width !== w || lastStreamSizeRef.current.height !== h)
+      ) {
+        lastStreamSizeRef.current = { width: w, height: h };
+        onStreamSizeChangeRef.current?.(w, h);
+      }
+
+      if (!hasReceivedFramesRef.current) {
+        hasReceivedFramesRef.current = true;
+        setHasReceivedFrames(true);
+      }
+    } finally {
+      frame.close();
+    }
+  };
+
+  const requestPaint = () => {
+    if (paintRafRef.current !== null) return;
+    paintRafRef.current = requestAnimationFrame(paintPendingFrame);
+  };
+
   // Initialize or reconfigure WebCodecs VideoDecoder
   const setupDecoder = (codecToUse: string) => {
     if (typeof VideoDecoder === "undefined") {
@@ -116,6 +166,7 @@ export const VideoCanvas: React.FC<VideoCanvasProps> = ({
     if (!canvas) return;
     const ctx = canvas.getContext("2d", { alpha: false, desynchronized: true });
     if (!ctx) return;
+    ctxRef.current = ctx;
 
     if (decoderRef.current && decoderRef.current.state !== "closed") {
       try {
@@ -128,32 +179,10 @@ export const VideoCanvas: React.FC<VideoCanvasProps> = ({
     try {
       const decoder = new VideoDecoder({
         output: (frame: VideoFrame) => {
-          const w = frame.displayWidth;
-          const h = frame.displayHeight;
-
-          // Dynamically adjust internal canvas pixel resolution to native video frame
-          // (fixes blurriness caused by rendering high-res frames onto a low-res canvas)
-          if (canvas.width !== w || canvas.height !== h) {
-            canvas.width = w;
-            canvas.height = h;
-          }
-
-          ctx.drawImage(frame, 0, 0, w, h);
-          frame.close();
-
-          if (
-            w > 0 &&
-            h > 0 &&
-            (lastStreamSizeRef.current.width !== w || lastStreamSizeRef.current.height !== h)
-          ) {
-            lastStreamSizeRef.current = { width: w, height: h };
-            onStreamSizeChangeRef.current?.(w, h);
-          }
-
-          if (!hasReceivedFramesRef.current) {
-            hasReceivedFramesRef.current = true;
-            setHasReceivedFrames(true);
-          }
+          const superseded = pendingFrameRef.current;
+          pendingFrameRef.current = frame;
+          if (superseded) superseded.close();
+          requestPaint();
         },
         error: (err: DOMException) => {
           console.error("[VideoDecoder error]:", err);
@@ -179,6 +208,14 @@ export const VideoCanvas: React.FC<VideoCanvasProps> = ({
     setupDecoder(currentCodecRef.current);
 
     return () => {
+      if (paintRafRef.current !== null) {
+        cancelAnimationFrame(paintRafRef.current);
+        paintRafRef.current = null;
+      }
+      pendingFrameRef.current?.close();
+      pendingFrameRef.current = null;
+      ctxRef.current = null;
+
       if (decoderRef.current && decoderRef.current.state !== "closed") {
         try {
           decoderRef.current.close();
