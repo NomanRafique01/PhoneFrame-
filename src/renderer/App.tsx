@@ -310,8 +310,36 @@ export const App: React.FC = () => {
     const newIndex = screens.length + 1;
     const newId = `screen-${Date.now()}`;
     const maxZ = screens.reduce((max, s) => Math.max(max, s.zIndex), 0);
-    const staggerX = (screens.length % 4) * 140 - 70;
-    const staggerY = (screens.length % 4) * 50 - 25;
+
+    let newOffset = { x: 0, y: 0 };
+    let updatedScreens = [...screens];
+
+    if (screens.length === 1) {
+      const primary = screens[0];
+      // If primary is near center, balance both screens side-by-side in separate spaces
+      if (Math.abs(primary.offset.x) < 30 && Math.abs(primary.offset.y) < 30) {
+        updatedScreens[0] = { ...primary, offset: { x: -200, y: 0 } };
+        newOffset = { x: 200, y: 0 };
+      } else {
+        newOffset = { x: primary.offset.x + 380, y: primary.offset.y };
+      }
+    } else if (screens.length === 2) {
+      // 3 screens: if first 2 are at -200 and +200, balance as -380, 0, +380
+      if (
+        Math.abs(screens[0].offset.x - -200) < 30 &&
+        Math.abs(screens[1].offset.x - 200) < 30
+      ) {
+        updatedScreens[0] = { ...screens[0], offset: { x: -380, y: 0 } };
+        updatedScreens[1] = { ...screens[1], offset: { x: 0, y: 0 } };
+        newOffset = { x: 380, y: 0 };
+      } else {
+        const last = screens[screens.length - 1];
+        newOffset = { x: last.offset.x + 380, y: last.offset.y };
+      }
+    } else if (screens.length === 3) {
+      const last = screens[screens.length - 1];
+      newOffset = { x: last.offset.x + 380, y: last.offset.y };
+    }
 
     const newScreen: ScreenInstance = {
       id: newId,
@@ -330,7 +358,7 @@ export const App: React.FC = () => {
         baseScreenWidth: 360,
       },
       scale: screens[0]?.scale ?? 70,
-      offset: { x: staggerX, y: staggerY },
+      offset: newOffset,
       zIndex: maxZ + 1,
       opacity: 1,
       isDragging: false,
@@ -339,7 +367,7 @@ export const App: React.FC = () => {
       isScreenInteracting: false,
     };
 
-    setScreens((prev) => [...prev, newScreen]);
+    setScreens([...updatedScreens, newScreen]);
   };
 
   // Close screen: primary cannot be closed if it's the only one
@@ -606,7 +634,7 @@ export const App: React.FC = () => {
           const isInspectingThis = activeInspectorScreenId === screen.id;
           const isBackgrounded = showInspector && !isInspectingThis;
           const isUnderneath = underneathScreens.has(screen.id);
-          const screenOpacity = isBackgrounded ? 0.25 : isUnderneath ? 0.35 : 1;
+          const screenOpacity = isBackgrounded ? 0.40 : isUnderneath ? 0.65 : 1;
 
           return (
             <PhoneScreenItem

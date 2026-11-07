@@ -258,7 +258,7 @@ export const PhoneScreenItem: React.FC<PhoneScreenItemProps> = ({
         zIndex,
         opacity,
         pointerEvents: isBackgrounded ? "none" : "auto",
-        filter: opacity < 0.95 ? "brightness(0.92)" : "none",
+        filter: opacity < 0.95 ? "brightness(0.95)" : "none",
         transform: `translate(${offset.x}px, ${offset.y}px)`,
         transition: isDragging
           ? "none"
