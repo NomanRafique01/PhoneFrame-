@@ -154,6 +154,7 @@ export const App: React.FC = () => {
   const inspectorRef = useRef<HTMLElement | null>(null);
   const isFullscreenRef = useRef(false);
   const savedOffsetsRef = useRef<Record<string, { x: number; y: number }>>({});
+  const hideTimersRef = useRef<Record<string, number>>({});
 
   const dragRef = useRef<{ screenId: string; pointerId: number; lastX: number; lastY: number } | null>(null);
   const dragHoldTimerRef = useRef<number | null>(null);
@@ -196,9 +197,13 @@ export const App: React.FC = () => {
     return () => window.removeEventListener("keydown", onKeyDown, true);
   }, []);
 
-  // Set window overlay size once at start
+  // Set window overlay size once at start & clean up hide timers on unmount
   useEffect(() => {
     window.electronAPI?.setWindowSize(window.screen.availWidth, window.screen.availHeight);
+    return () => {
+      Object.values(hideTimersRef.current).forEach((t) => window.clearTimeout(t));
+      hideTimersRef.current = {};
+    };
   }, []);
 
   // Subscribe to ADB status
@@ -465,15 +470,25 @@ export const App: React.FC = () => {
   };
 
   const handleMouseEnter = (screenId: string) => {
+    if (hideTimersRef.current[screenId]) {
+      window.clearTimeout(hideTimersRef.current[screenId]);
+      delete hideTimersRef.current[screenId];
+    }
     setScreens((prev) =>
       prev.map((s) => (s.id === screenId ? { ...s, isHovered: true } : s))
     );
   };
 
   const handleMouseLeave = (screenId: string) => {
-    setScreens((prev) =>
-      prev.map((s) => (s.id === screenId ? { ...s, isHovered: false } : s))
-    );
+    if (hideTimersRef.current[screenId]) {
+      window.clearTimeout(hideTimersRef.current[screenId]);
+    }
+    hideTimersRef.current[screenId] = window.setTimeout(() => {
+      delete hideTimersRef.current[screenId];
+      setScreens((prev) =>
+        prev.map((s) => (s.id === screenId ? { ...s, isHovered: false } : s))
+      );
+    }, 650);
   };
 
   const handleToggleDragMode = (screenId: string) => {

@@ -93,6 +93,7 @@ export const PhoneScreenItem: React.FC<PhoneScreenItemProps> = ({
   const [dpadEnabled, setDpadEnabled] = useState(false);
   const [touchHudOpen, setTouchHudOpen] = useState(false);
   const [isHudCollapsed, setIsHudCollapsed] = useState(false);
+  const [isHudHovered, setIsHudHovered] = useState(false);
   const [hudHeight, setHudHeight] = useState(0);
   const [sessionNotice, setSessionNotice] = useState<string | null>(null);
   const [wifiBusy, setWifiBusy] = useState(false);
@@ -226,7 +227,7 @@ export const PhoneScreenItem: React.FC<PhoneScreenItemProps> = ({
   const isStreaming = mirrorState === "running";
   const isStarting = mirrorState === "starting";
 
-  const hudVisible = !isHudCollapsed && !isBackgrounded && (isHovered || isInspecting || isDragging || touchHudOpen);
+  const hudVisible = !isHudCollapsed && !isBackgrounded && (isHovered || isHudHovered || isInspecting || isDragging || touchHudOpen);
   const effectiveHudVisible = hudVisible && !isFullscreen;
 
   // Collapsed side key metrics
@@ -286,10 +287,19 @@ export const PhoneScreenItem: React.FC<PhoneScreenItemProps> = ({
       <div
         className="hud-drawer"
         ref={hudDrawerRef}
+        onMouseEnter={() => {
+          onMouseEnter();
+          setIsHudHovered(true);
+        }}
+        onMouseLeave={() => {
+          setIsHudHovered(false);
+          onMouseLeave();
+        }}
         style={{
           position: "absolute",
           top: "50%",
-          left: "calc(100% + 10px)",
+          left: "100%",
+          paddingLeft: "10px",
           right: "auto",
           zIndex: 100,
           opacity: effectiveHudVisible ? 1 : 0,
