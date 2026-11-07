@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, screen } from "electron";
+import { app, BrowserWindow, ipcMain, screen, nativeImage } from "electron";
 import * as path from "node:path";
 
 // Suppress ADB mDNS / network discovery to prevent Windows Firewall permission prompts.
@@ -82,7 +82,15 @@ function getOrCreateMirrorSession(screenId: string = "primary"): ScrcpyServerMan
 }
 
 // Windows picks the window/taskbar/shortcut icon from this path.
-const APP_ICON_PATH = assetPath("phoneframe-icon.ico");
+const APP_ICON_ICO = assetPath("phoneframe-icon.ico");
+const APP_ICON_PNG = assetPath("phoneframe-icon.png");
+
+function getAppIcon(): Electron.NativeImage {
+  // Try ICO first for native multi-res (16-256px), fallback to high-res master PNG
+  const ico = nativeImage.createFromPath(APP_ICON_ICO);
+  if (!ico.isEmpty()) return ico;
+  return nativeImage.createFromPath(APP_ICON_PNG);
+}
 
 // The floating phone must stay above every other app; re-assert topmost
 // whenever focus changes, because new apps can otherwise rise above it.
@@ -159,10 +167,12 @@ function computeWindowBounds(): { x: number; y: number; width: number; height: n
 }
 
 function createWindow(): void {
+  const appIcon = getAppIcon();
+
   mainWindow = new BrowserWindow({
     ...computeWindowBounds(),
     show: false,
-    icon: APP_ICON_PATH,
+    icon: appIcon,
     minWidth: 200,
     minHeight: 300,
     frame: false,
@@ -179,6 +189,9 @@ function createWindow(): void {
     },
   });
 
+  // Explicitly apply window icon for Windows taskbar and Alt+Tab overlay
+  mainWindow.setIcon(appIcon);
+
   const devServerUrl = process.env.VITE_DEV_SERVER_URL;
   if (devServerUrl) {
     mainWindow.loadURL(devServerUrl);
@@ -187,8 +200,11 @@ function createWindow(): void {
   }
 
   // Never flash the window at a half-loaded position: reveal it only once the
-  // renderer is ready to paint the centered frame.
-  mainWindow.once("ready-to-show", () => mainWindow?.show());
+  // renderer is ready to paint the centered frame, and re-assert the taskbar icon.
+  mainWindow.once("ready-to-show", () => {
+    mainWindow?.setIcon(appIcon);
+    mainWindow?.show();
+  });
 
   // Floating phone stays above other apps; it only minimizes/closes via the HUD
   applyPin();
@@ -202,9 +218,13 @@ function createWindow(): void {
 }
 
 app.whenReady().then(async () => {
-  // Give the app its own taskbar identity so Windows groups the window (and a
-  // pinned shortcut) under PhoneFrame instead of the generic Electron entry.
-  app.setAppUserModelId("com.phoneframe.app");
+  // Give the app its own taskbar identity when packaged so Windows groups the window
+  // with the installed Start Menu shortcut. In development mode (npm start), do NOT bind
+  // to the installed shortcut's AppID to prevent Windows Taskbar from pulling any stale
+  // cached icon from a previously installed older build.
+  if (app.isPackaged) {
+    app.setAppUserModelId("com.phoneframe.app");
+  }
 
   cachedResolvedAdb = await adbTracker.resolveAdbPath();
   getOrCreateMirrorSession("primary");
