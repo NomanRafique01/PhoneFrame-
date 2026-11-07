@@ -7,7 +7,7 @@ import {
 import { FloatingHUD, DeviceNameHUD } from "../HUD";
 import { SetupWizard } from "../SetupWizard";
 import { VideoCanvas } from "../VideoCanvas/VideoCanvas";
-import { ChevronRightIcon, SmartphoneIcon } from "../icons";
+import { ChevronRightIcon, SmartphoneIcon, RefreshCwIcon } from "../icons";
 import { NoticeBanner } from "../Notice/NoticeBanner";
 import { usePhoneAudio } from "../../audio/usePhoneAudio";
 import type { AdbStatusPayload, MirrorState } from "../../types/electron";
@@ -44,7 +44,7 @@ export interface PhoneScreenItemProps {
   onToggleDragMode: () => void;
   onUpdateName: (name: string) => void;
   onNameAssigned?: () => void;
-  onUpdateConnectionMode?: (mode: "usb" | "wifi") => void;
+  onUpdateConnectionMode?: (mode: "usb" | "wifi" | null) => void;
   onOptionsChange: (opts: PhoneFrameOptions) => void;
   onScaleChange: (scale: number) => void;
   onSerialAssigned?: (serial: string) => void;
@@ -113,6 +113,7 @@ export const PhoneScreenItem: React.FC<PhoneScreenItemProps> = ({
   const [isHudHovered, setIsHudHovered] = useState(false);
   const [hudHeight, setHudHeight] = useState(0);
   const [sessionNotice, setSessionNotice] = useState<string | null>(null);
+  const [isSwitchingToWifi, setIsSwitchingToWifi] = useState(false);
   const [wifiBusy, setWifiBusy] = useState(false);
   const [wifiMsg, setWifiMsg] = useState<string | null>(null);
   const [audioMuted, setAudioMuted] = useState(false);
@@ -149,15 +150,26 @@ export const PhoneScreenItem: React.FC<PhoneScreenItemProps> = ({
       const isEnded = payload.state === "stopped" || payload.state === "error";
       prevMirrorStateRef.current = payload.state;
 
+      if (isEnded && isSwitchingToWifiRef.current) {
+        // The switch tears the USB stream down on purpose; keep the last
+        // frame under the overlay instead of dropping to the setup view.
+        return;
+      }
+
       setMirrorState(payload.state);
 
+      if (payload.state === "running" && isSwitchingToWifiRef.current) {
+        // New Wi-Fi stream is live: fade the switch overlay away, but keep
+        // swallowing trailing stop events from the torn-down USB link.
+        setIsSwitchingToWifi(false);
+        window.setTimeout(() => {
+          isSwitchingToWifiRef.current = false;
+        }, 1200);
+      }
+
       if (wasActive && isEnded) {
-        if (isSwitchingToWifiRef.current) {
-          // Intentional switch from USB to Wi-Fi: do not trigger false "Connection failed"
-          return;
-        }
         setIsWizardActive(true);
-        setConnectionMode(null);
+        onUpdateConnectionMode?.(null);
         onSerialReleased?.();
         showSessionNotice(payload.state === "error" ? "Connection failed" : "Stream stopped");
       }
@@ -226,68 +238,78 @@ export const PhoneScreenItem: React.FC<PhoneScreenItemProps> = ({
     await window.electronAPI.stopMirror(screenId);
     setMirrorState("stopped");
     setIsWizardActive(true);
-    setConnectionMode(null);
+    onUpdateConnectionMode?.(null);
     onSerialReleased?.();
   };
 
   const handleSwitchToWifi = async () => {
     const serial = activeDevice?.serial;
     if (!serial || !window.electronAPI) {
-      showSessionNotice("No device available to switch to Wi-Fi.");
+      showSessionNotice("✕ No device available to switch to Wi-Fi.");
       return;
     }
     if (wifiBusy) return;
 
+    // Latch before touching ADB: enabling tcpip restarts the link, so the
+    // stop event of the USB stream must not be read as a real stream end.
+    isSwitchingToWifiRef.current = true;
+    setIsSwitchingToWifi(true);
     setWifiBusy(true);
-    setWifiMsg("Querying phone IP and enabling Wi-Fi mode…");
+    setWifiMsg("Switching this phone to Wi-Fi…");
+
+    const stopCurrentStream = async () => {
+      if (mirrorState === "running" || mirrorState === "starting") {
+        try {
+          await window.electronAPI?.stopMirror(screenId);
+        } catch {}
+      }
+    };
+
+    const failSwitch = async (message: string) => {
+      setIsSwitchingToWifi(false);
+      showSessionNotice(message);
+      setWifiMsg(null);
+      // Let the notice land on the last frame before the stream closes.
+      await new Promise((resolve) => setTimeout(resolve, 1200));
+      await stopCurrentStream();
+      setMirrorState("stopped");
+      setIsWizardActive(true);
+      onUpdateConnectionMode?.(null);
+      onSerialReleased?.();
+      // Keep swallowing the stop event until it has definitely landed.
+      window.setTimeout(() => {
+        isSwitchingToWifiRef.current = false;
+      }, 1500);
+    };
 
     try {
       const res = await window.electronAPI.enableWireless(serial);
-      if (res.success && res.ip) {
-        const wifiSerial = `${res.ip}:5555`;
-        setWifiMsg(`Connected to ${wifiSerial}! Switching stream…`);
-
-        isSwitchingToWifiRef.current = true;
-
-        if (mirrorState === "running" || mirrorState === "starting") {
-          try {
-            await window.electronAPI.stopMirror(screenId);
-          } catch {}
-          await new Promise((r) => setTimeout(r, 600));
-        }
-
-        setIsWizardActive(false);
-        onSerialAssigned?.(wifiSerial);
-        try {
-          const ok = await window.electronAPI.startMirror(wifiSerial, screenId);
-          if (ok) {
-            setTimeout(() => {
-              isSwitchingToWifiRef.current = false;
-            }, 1200);
-            setWifiMsg("✓ Streaming over Wi-Fi! You can now unplug the USB cable.");
-            showSessionNotice("✓ Streaming over Wi-Fi! You can now unplug the USB cable.");
-          } else {
-            isSwitchingToWifiRef.current = false;
-            setMirrorState("error");
-            setIsWizardActive(true);
-            setConnectionMode(null);
-            onSerialReleased?.();
-            showSessionNotice("Connection failed: Could not start Wi-Fi stream.");
-          }
-        } catch (startErr: any) {
-          isSwitchingToWifiRef.current = false;
-          setMirrorState("error");
-          setIsWizardActive(true);
-          setConnectionMode(null);
-          onSerialReleased?.();
-          showSessionNotice("Connection failed: " + (startErr?.message || "Failed to start Wi-Fi stream"));
-        }
-      } else {
-        setWifiMsg(`✕ ${res.error || "Failed to switch to Wi-Fi"}`);
+      if (!res.success || !res.ip) {
+        await failSwitch(`✕ Could not switch to Wi-Fi. ${res.error || "Phone stayed on USB."}`);
+        return;
       }
+
+      const wifiSerial = `${res.ip}:5555`;
+      setWifiMsg(`Re-routing stream to ${wifiSerial}…`);
+      await stopCurrentStream();
+      await new Promise((r) => setTimeout(r, 600));
+
+      onSerialAssigned?.(wifiSerial);
+      const ok = await window.electronAPI.startMirror(wifiSerial, screenId);
+      if (!ok) {
+        await failSwitch("✕ The Wi-Fi stream could not start. Back to setup.");
+        return;
+      }
+
+      setWifiMsg("✓ Streaming over Wi-Fi! You can now unplug the USB cable.");
+      showSessionNotice("✓ Streaming over Wi-Fi! You can now unplug the USB cable.");
+      // The running event normally clears the overlay; this is the fallback.
+      window.setTimeout(() => {
+        isSwitchingToWifiRef.current = false;
+        setIsSwitchingToWifi(false);
+      }, 4000);
     } catch (e: any) {
-      isSwitchingToWifiRef.current = false;
-      setWifiMsg(`✕ ${e?.message || "Error switching to Wi-Fi"}`);
+      await failSwitch(`✕ ${e?.message || "Error switching to Wi-Fi"}. Stream ended.`);
     } finally {
       setWifiBusy(false);
       setTimeout(() => {
@@ -309,7 +331,7 @@ export const PhoneScreenItem: React.FC<PhoneScreenItemProps> = ({
         await window.electronAPI.disconnectWireless(serial);
       }
       setIsWizardActive(true);
-      setConnectionMode(null);
+      onUpdateConnectionMode?.(null);
       onSerialReleased?.();
       setWifiMsg("Wi-Fi disconnected");
       showSessionNotice("Wi-Fi stream disconnected.");
@@ -585,6 +607,68 @@ export const PhoneScreenItem: React.FC<PhoneScreenItemProps> = ({
                   onInteractionChange={onInteractionChange}
                   onStreamSizeChange={scheduleStreamOrientation}
                 />
+                {/* Switch overlay: holds the last frame while the USB stream is
+                    re-routed over Wi-Fi, so the view never drops to standby. */}
+                <div
+                  role="status"
+                  aria-live="polite"
+                  style={{
+                    position: "absolute",
+                    inset: 0,
+                    zIndex: 70,
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: "12px",
+                    padding: "24px 20px",
+                    textAlign: "center",
+                    backgroundColor: "rgba(5, 11, 14, 0.86)",
+                    backdropFilter: "blur(3px)",
+                    WebkitBackdropFilter: "blur(3px)",
+                    opacity: isSwitchingToWifi ? 1 : 0,
+                    pointerEvents: isSwitchingToWifi ? "auto" : "none",
+                    transition: "opacity 260ms cubic-bezier(0.22, 1, 0.36, 1)",
+                  }}
+                >
+                  <div
+                    style={{
+                      width: "46px",
+                      height: "46px",
+                      borderRadius: "50%",
+                      backgroundColor: "var(--ink-900)",
+                      border: "1px solid var(--border)",
+                      color: "var(--accent)",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                  >
+                    <RefreshCwIcon size={20} className="spin" />
+                  </div>
+                  <div>
+                    <div style={{ fontSize: "12.5px", fontWeight: 700, color: "var(--mist-100)" }}>
+                      Switching to Wi-Fi
+                    </div>
+                    <div
+                      style={{
+                        fontSize: "10.5px",
+                        lineHeight: 1.5,
+                        color: "var(--mist-400)",
+                        marginTop: "4px",
+                        maxWidth: "26ch",
+                      }}
+                    >
+                      Re-routing this stream over your local network. Keep the USB cable plugged in until it reconnects.
+                    </div>
+                  </div>
+                  <div
+                    className="mono-data"
+                    style={{ fontSize: "9px", letterSpacing: "0.08em", color: "var(--mist-400)" }}
+                  >
+                    THIS TAKES 3–5 SECONDS
+                  </div>
+                </div>
                 {sessionNotice && (
                   <NoticeBanner message={sessionNotice} style={{ zIndex: 80 }} />
                 )}

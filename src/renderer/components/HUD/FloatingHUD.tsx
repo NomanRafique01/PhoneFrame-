@@ -4,6 +4,7 @@ import {
   DPadIcon,
   HandIcon,
   PinIcon,
+  RefreshCwIcon,
   RotateIcon,
   SettingsIcon,
   MinimizeIcon,
@@ -371,6 +372,7 @@ export const FloatingHUD: React.FC<FloatingHUDProps> = ({
         <button
           onClick={onSwitchToWifi}
           disabled={wifiBusy}
+          aria-busy={wifiBusy}
           title={wifiBusy ? "Switching to Wi-Fi…" : "1-Click: Switch stream to Wi-Fi mode"}
           aria-label="Switch to Wi-Fi mode"
           style={{
@@ -388,7 +390,7 @@ export const FloatingHUD: React.FC<FloatingHUDProps> = ({
             transition: "all 0.15s ease",
           }}
         >
-          <WifiIcon size={16} />
+          {wifiBusy ? <RefreshCwIcon size={15} className="spin" /> : <WifiIcon size={16} />}
         </button>
       )}
 
@@ -424,7 +426,13 @@ export const FloatingHUD: React.FC<FloatingHUDProps> = ({
             transition: "all 0.18s ease",
           }}
         >
-          {wifiHover ? <WifiOffIcon size={16} /> : <WifiIcon size={16} />}
+          {wifiBusy ? (
+            <RefreshCwIcon size={15} className="spin" />
+          ) : wifiHover ? (
+            <WifiOffIcon size={16} />
+          ) : (
+            <WifiIcon size={16} />
+          )}
         </button>
       )}
 
