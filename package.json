@@ -63,7 +63,8 @@
       "createStartMenuShortcut": true,
       "shortcutName": "PhoneFrame",
       "installerIcon": "assets/phoneframe-icon.ico",
-      "uninstallerIcon": "assets/phoneframe-icon.ico"
+      "uninstallerIcon": "assets/phoneframe-icon.ico",
+      "include": "scripts/installer.nsh"
     }
   }
 }

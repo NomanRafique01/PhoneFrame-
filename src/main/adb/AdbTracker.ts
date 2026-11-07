@@ -4,6 +4,15 @@ import * as path from "node:path";
 import { EventEmitter } from "node:events";
 import { assetPath } from "../assets";
 
+// Suppress ADB mDNS / network discovery to prevent Windows Defender Firewall prompts.
+const ADB_SILENT_ENV = {
+  ...process.env,
+  ADB_MDNS: "0",
+  ADB_MDNS_OPENSCREEN: "0",
+  ADB_MDNS_AUTO_CONNECT: "0",
+  ADB_SERVER_SOCKET: "tcp:127.0.0.1:5037",
+};
+
 export type AdbDeviceState = "device" | "unauthorized" | "offline" | "no-device";
 
 export interface AdbDeviceInfo {
@@ -124,7 +133,10 @@ export class AdbTracker extends EventEmitter {
   private startTrackDevices(adb: string): void {
     if (!this.running || this.trackProcess) return;
 
-    const track = spawn(adb, ["track-devices"]);
+    const track = spawn(adb, ["track-devices"], {
+      env: ADB_SILENT_ENV,
+      windowsHide: true,
+    });
     this.trackProcess = track;
 
     track.stdout.on("data", () => {
@@ -177,7 +189,10 @@ export class AdbTracker extends EventEmitter {
   public async getScreenSize(serial: string): Promise<{ width: number; height: number } | null> {
     const adb = await this.resolveAdbPath();
     return new Promise((resolve) => {
-      exec(`"${adb}" -s ${serial} shell wm size`, (err, stdout) => {
+      exec(
+        `"${adb}" -s ${serial} shell wm size`,
+        { env: ADB_SILENT_ENV, windowsHide: true },
+        (err, stdout) => {
         if (err || !stdout) {
           return resolve(null);
         }
@@ -197,7 +212,7 @@ export class AdbTracker extends EventEmitter {
    * Poll active devices with `adb devices -l` to get rich metadata
    */
   private runDevicesPoll(adb: string): void {
-    exec(`"${adb}" devices -l`, async (err, stdout) => {
+    exec(`"${adb}" devices -l`, { env: ADB_SILENT_ENV, windowsHide: true }, async (err, stdout) => {
       if (err) {
         this.updateStatus({
           state: "no-device",

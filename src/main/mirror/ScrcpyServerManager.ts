@@ -5,6 +5,15 @@ import { EventEmitter } from "node:events";
 import { encodeControlInput } from "./controlMessages";
 import { assetPath } from "../assets";
 
+// Suppress ADB mDNS / network discovery to prevent Windows Defender Firewall prompts.
+const ADB_SILENT_ENV = {
+  ...process.env,
+  ADB_MDNS: "0",
+  ADB_MDNS_OPENSCREEN: "0",
+  ADB_MDNS_AUTO_CONNECT: "0",
+  ADB_SERVER_SOCKET: "tcp:127.0.0.1:5037",
+};
+
 const REMOTE_JAR = "/data/local/tmp/scrcpy-server.jar";
 const SERVER_VERSION = "3.1";
 const STREAM_START_TIMEOUT_MS = 12000;
@@ -341,7 +350,10 @@ export class ScrcpyServerManager extends EventEmitter {
       serverArgs.push("audio_source=playback", "audio_dup=true");
     }
 
-    const process = spawn(this.adbPath, serverArgs, { windowsHide: true });
+    const process = spawn(this.adbPath, serverArgs, {
+      env: ADB_SILENT_ENV,
+      windowsHide: true,
+    });
     this.serverProcess = process;
     console.log(
       `[ScrcpyServerManager] scrcpy-server spawning (scid=${this.scid}, pid=${process.pid ?? "?"})`
@@ -1009,7 +1021,12 @@ export class ScrcpyServerManager extends EventEmitter {
       execFile(
         this.adbPath,
         args,
-        { timeout: timeoutMs, windowsHide: true, maxBuffer: 4 * 1024 * 1024 },
+        {
+          env: ADB_SILENT_ENV,
+          timeout: timeoutMs,
+          windowsHide: true,
+          maxBuffer: 4 * 1024 * 1024,
+        },
         (err, stdout, stderr) => {
           if (err) {
             const detail = (stderr || stdout || "").trim() || err.message;

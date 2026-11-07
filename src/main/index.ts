@@ -1,5 +1,14 @@
 import { app, BrowserWindow, ipcMain, screen } from "electron";
 import * as path from "node:path";
+
+// Suppress ADB mDNS / network discovery to prevent Windows Firewall permission prompts.
+// PhoneFrame communicates over USB or pre-connected TCP via localhost loopback, so mDNS
+// discovery is unnecessary and triggers Windows Defender Firewall alerts on 0.0.0.0:5353.
+process.env.ADB_MDNS = "0";
+process.env.ADB_MDNS_OPENSCREEN = "0";
+process.env.ADB_MDNS_AUTO_CONNECT = "0";
+process.env.ADB_SERVER_SOCKET = "tcp:127.0.0.1:5037";
+
 import { AdbTracker, type AdbStatusPayload } from "./adb/AdbTracker";
 import { ScrcpyServerManager } from "./mirror/ScrcpyServerManager";
 import { assetPath } from "./assets";
