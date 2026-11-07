@@ -573,6 +573,22 @@ export const App: React.FC = () => {
     }
   };
 
+  const [quickIp, setQuickIp] = useState("");
+  const handleQuickConnect = async () => {
+    if (!quickIp.trim() || !window.electronAPI) return;
+    setWifiBusy(true);
+    setWifiMsg(null);
+    try {
+      const res = await window.electronAPI.connectWireless(quickIp.trim());
+      setWifiMsg(res.message);
+      if (res.success) setQuickIp("");
+    } catch (e: any) {
+      setWifiMsg(e?.message || "Failed to connect Wi-Fi");
+    } finally {
+      setWifiBusy(false);
+    }
+  };
+
   const handleMouseEnter = () => {
     if (hideTimerRef.current) {
       window.clearTimeout(hideTimerRef.current);
@@ -849,6 +865,7 @@ export const App: React.FC = () => {
               onToggleAudio={() => setAudioMuted((muted) => !muted)}
               audioVolume={audioVolume}
               onAudioVolumeChange={setAudioVolume}
+              isWireless={Boolean(activeDevice?.isWireless)}
               showInspector={showInspector}
               onToggleInspector={() => setShowInspector(!showInspector)}
               onMinimize={handleMinimize}
@@ -1373,6 +1390,73 @@ export const App: React.FC = () => {
             )}
           </div>
 
+          {/* Quick Wi-Fi Direct Connect Card */}
+          <div
+            style={{
+              padding: "var(--space-3)",
+              backgroundColor: "var(--ink-950)",
+              borderRadius: "var(--radius-sm)",
+              border: "1px solid var(--border)",
+              display: "flex",
+              flexDirection: "column",
+              gap: "6px",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <span
+                style={{
+                  fontSize: "var(--text-xs)",
+                  fontWeight: 600,
+                  color: "var(--text-muted)",
+                  textTransform: "uppercase",
+                  letterSpacing: "0.06em",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "4px",
+                }}
+              >
+                <WifiIcon size={12} style={{ color: "var(--accent)" }} />
+                Wi-Fi Direct Connect
+              </span>
+            </div>
+            <div style={{ display: "flex", gap: "6px" }}>
+              <input
+                type="text"
+                placeholder="192.168.1.x:5555"
+                value={quickIp}
+                onChange={(e) => setQuickIp(e.target.value)}
+                className="mono-data"
+                style={{
+                  flex: 1,
+                  padding: "5px 8px",
+                  borderRadius: "var(--radius-sm)",
+                  backgroundColor: "var(--ink-900)",
+                  border: "1px solid var(--border)",
+                  color: "var(--mist-100)",
+                  fontSize: "11px",
+                  boxSizing: "border-box",
+                }}
+              />
+              <button
+                onClick={handleQuickConnect}
+                disabled={wifiBusy || !quickIp.trim()}
+                style={{
+                  padding: "5px 10px",
+                  borderRadius: "var(--radius-sm)",
+                  backgroundColor: "var(--accent)",
+                  border: "none",
+                  color: "#06141B",
+                  fontSize: "10.5px",
+                  fontWeight: 700,
+                  cursor: wifiBusy || !quickIp.trim() ? "not-allowed" : "pointer",
+                  opacity: wifiBusy || !quickIp.trim() ? 0.6 : 1,
+                }}
+              >
+                Connect
+              </button>
+            </div>
+          </div>
+
           {/* Quick Setup Wizard Toggle */}
           <div
             style={{
@@ -1387,7 +1471,7 @@ export const App: React.FC = () => {
           >
             <div>
               <div style={{ fontSize: "var(--text-xs)", fontWeight: 600, color: "var(--mist-200)" }}>
-                USB Setup Guide
+                Setup & Pairing Guide
               </div>
               <div style={{ fontSize: "10px", color: "var(--text-muted)" }}>
                 {isWizardActive ? "Active on phone display" : "Inactive"}

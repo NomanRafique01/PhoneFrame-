@@ -12,6 +12,7 @@ import {
   CloseIcon,
   VolumeIcon,
   VolumeOffIcon,
+  WifiIcon,
 } from "../icons";
 
 interface FloatingHUDProps {
@@ -31,6 +32,7 @@ interface FloatingHUDProps {
   onToggleAudio: () => void;
   audioVolume: number;
   onAudioVolumeChange: (volume: number) => void;
+  isWireless?: boolean;
   showInspector: boolean;
   onToggleInspector: () => void;
   onMinimize: () => void;
@@ -185,6 +187,7 @@ export const FloatingHUD: React.FC<FloatingHUDProps> = ({
   onToggleAudio,
   audioVolume,
   onAudioVolumeChange,
+  isWireless,
   showInspector,
   onToggleInspector,
   onMinimize,
@@ -377,6 +380,28 @@ export const FloatingHUD: React.FC<FloatingHUDProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Wireless Active Badge Indicator */}
+      {isWireless && (
+        <div
+          title="Streaming wirelessly over local Wi-Fi"
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            width: "32px",
+            height: "20px",
+            borderRadius: "4px",
+            backgroundColor: "rgba(138, 230, 196, 0.14)",
+            border: "1px solid rgba(138, 230, 196, 0.3)",
+            color: "var(--accent)",
+            marginBottom: "2px",
+          }}
+        >
+          <WifiIcon size={12} />
+        </div>
+      )}
 
       {/* Inspector / Frame Customizer Drawer */}
       <button
