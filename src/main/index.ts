@@ -7,7 +7,6 @@ import * as path from "node:path";
 process.env.ADB_MDNS = "0";
 process.env.ADB_MDNS_OPENSCREEN = "0";
 process.env.ADB_MDNS_AUTO_CONNECT = "0";
-process.env.ADB_SERVER_SOCKET = "tcp:127.0.0.1:5037";
 
 import { AdbTracker, type AdbStatusPayload } from "./adb/AdbTracker";
 import { ScrcpyServerManager } from "./mirror/ScrcpyServerManager";
@@ -320,6 +319,10 @@ ipcMain.handle("window:getFullscreen", () => {
 // ADB IPC handlers
 ipcMain.handle("adb:getStatus", () => {
   return adbTracker.getStatus();
+});
+
+ipcMain.handle("adb:refreshDevices", async () => {
+  return adbTracker.refreshDevices();
 });
 
 ipcMain.handle("adb:getScreenSize", async (_event, serial: string) => {

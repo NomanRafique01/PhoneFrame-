@@ -60,6 +60,7 @@ export interface FloatingPhoneAPI {
 
   // ADB device tracking
   getAdbStatus: () => Promise<AdbStatusPayload>;
+  refreshDevices: () => Promise<AdbStatusPayload>;
   onAdbStatusChange: (callback: (status: AdbStatusPayload) => void) => () => void;
   getAdbScreenSize: (serial: string) => Promise<{ width: number; height: number } | null>;
   getDeviceIp: (serial: string) => Promise<string | null>;

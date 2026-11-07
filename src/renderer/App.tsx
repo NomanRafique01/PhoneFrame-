@@ -208,8 +208,12 @@ export const App: React.FC = () => {
 
   // Subscribe to ADB status
   useEffect(() => {
-    if (window.electronAPI?.getAdbStatus) {
-      window.electronAPI.getAdbStatus().then((status) => {
+    const fetchInitialStatus = window.electronAPI?.refreshDevices
+      ? window.electronAPI.refreshDevices()
+      : window.electronAPI?.getAdbStatus?.();
+
+    if (fetchInitialStatus) {
+      fetchInitialStatus.then((status) => {
         if (status) setAdbStatus(status);
       });
     }

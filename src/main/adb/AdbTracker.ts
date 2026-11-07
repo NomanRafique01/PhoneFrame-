@@ -10,7 +10,6 @@ const ADB_SILENT_ENV = {
   ADB_MDNS: "0",
   ADB_MDNS_OPENSCREEN: "0",
   ADB_MDNS_AUTO_CONNECT: "0",
-  ADB_SERVER_SOCKET: "tcp:127.0.0.1:5037",
 };
 
 export type AdbDeviceState = "device" | "unauthorized" | "offline" | "no-device";
@@ -110,6 +109,23 @@ export class AdbTracker extends EventEmitter {
   }
 
   /**
+   * Ensure ADB daemon server is running locally
+   */
+  public async ensureServerStarted(adb?: string): Promise<void> {
+    const binary = adb || (await this.resolveAdbPath());
+    return new Promise((resolve) => {
+      exec(`"${binary}" start-server`, { env: ADB_SILENT_ENV, windowsHide: true }, (err, stdout, stderr) => {
+        if (err) {
+          console.warn("[AdbTracker] start-server notice:", err.message, stderr);
+        } else {
+          console.log("[AdbTracker] adb server verified:", stdout ? stdout.trim() : "ok");
+        }
+        resolve();
+      });
+    });
+  }
+
+  /**
    * Start tracking devices via `adb track-devices` and polling fallback.
    * Idempotent: repeated calls never create a second monitor.
    */
@@ -118,6 +134,7 @@ export class AdbTracker extends EventEmitter {
     this.running = true;
 
     const adb = await this.resolveAdbPath();
+    await this.ensureServerStarted(adb);
     this.runDevicesPoll(adb);
     this.startTrackDevices(adb);
 
@@ -125,6 +142,19 @@ export class AdbTracker extends EventEmitter {
     this.pollInterval = setInterval(() => {
       if (this.running) this.runDevicesPoll(adb);
     }, 3000);
+  }
+
+  /**
+   * Active hardware scan: wakes up server if needed and queries devices immediately.
+   */
+  public async refreshDevices(): Promise<AdbStatusPayload> {
+    const adb = await this.resolveAdbPath();
+    await this.ensureServerStarted(adb);
+    return new Promise((resolve) => {
+      this.runDevicesPoll(adb, (status) => {
+        resolve(status);
+      });
+    });
   }
 
   /**
@@ -192,7 +222,7 @@ export class AdbTracker extends EventEmitter {
     return new Promise((resolve) => {
       exec(
         `"${adb}" -s ${serial} shell wm size`,
-        { env: ADB_SILENT_ENV, windowsHide: true },
+        { env: ADB_SILENT_ENV, windowsHide: true, timeout: 3000 },
         (err, stdout) => {
         if (err || !stdout) {
           return resolve(null);
@@ -490,7 +520,7 @@ export class AdbTracker extends EventEmitter {
   /**
    * Poll active devices with `adb devices -l` to get rich metadata
    */
-  private runDevicesPoll(adb: string): void {
+  private runDevicesPoll(adb: string, onComplete?: (status: AdbStatusPayload) => void): void {
     exec(`"${adb}" devices -l`, { env: ADB_SILENT_ENV, windowsHide: true }, async (err, stdout) => {
       if (err) {
         this.updateStatus({
@@ -498,6 +528,7 @@ export class AdbTracker extends EventEmitter {
           devices: [],
           activeDevice: null,
         });
+        onComplete?.(this.currentStatus);
         return;
       }
 
@@ -539,6 +570,7 @@ export class AdbTracker extends EventEmitter {
         devices,
         activeDevice: active,
       });
+      onComplete?.(this.currentStatus);
     });
   }
 

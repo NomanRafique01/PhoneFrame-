@@ -62,6 +62,7 @@ export interface FloatingPhoneAPI {
 
   // ADB device tracking
   getAdbStatus: () => Promise<AdbStatusPayload>;
+  refreshDevices: () => Promise<AdbStatusPayload>;
   onAdbStatusChange: (callback: (status: AdbStatusPayload) => void) => () => void;
   getAdbScreenSize: (serial: string) => Promise<{ width: number; height: number } | null>;
   getDeviceIp: (serial: string) => Promise<string | null>;
@@ -104,6 +105,7 @@ const api: FloatingPhoneAPI = {
   },
 
   getAdbStatus: () => ipcRenderer.invoke("adb:getStatus"),
+  refreshDevices: () => ipcRenderer.invoke("adb:refreshDevices"),
   onAdbStatusChange: (callback: (status: AdbStatusPayload) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, status: AdbStatusPayload) => callback(status);
     ipcRenderer.on("adb:status-changed", handler);

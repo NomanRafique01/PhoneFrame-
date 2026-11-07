@@ -11,7 +11,6 @@ const ADB_SILENT_ENV = {
   ADB_MDNS: "0",
   ADB_MDNS_OPENSCREEN: "0",
   ADB_MDNS_AUTO_CONNECT: "0",
-  ADB_SERVER_SOCKET: "tcp:127.0.0.1:5037",
 };
 
 const REMOTE_JAR = "/data/local/tmp/scrcpy-server.jar";
