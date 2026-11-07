@@ -52,22 +52,10 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
 }) => {
   const [mode, setMode] = useState<ConnectionMode | null>(null);
   const [isNamingStep, setIsNamingStep] = useState(false);
-  const [customDeviceName, setCustomDeviceName] = useState<string>(() => {
-    if (deviceName && deviceName.trim()) return deviceName.trim();
-    try {
-      const saved = localStorage.getItem("phoneframe_device_nickname");
-      if (saved && saved.trim()) return saved.trim();
-    } catch {}
-    return "";
-  });
+  // Each time user enters naming step, input starts fresh and empty
+  const [customDeviceName, setCustomDeviceName] = useState<string>("");
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
   const [tapCounter, setTapCounter] = useState(0);
-
-  useEffect(() => {
-    if (deviceName && deviceName.trim()) {
-      setCustomDeviceName(deviceName.trim());
-    }
-  }, [deviceName]);
 
   // Wireless Wi-Fi switch states
   const [isScanning, setIsScanning] = useState(false);
@@ -241,11 +229,11 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
       customDeviceName.trim() ||
       activeDevice?.model ||
       (mode === "wifi" ? "Wi-Fi Device" : "USB Device");
-    setCustomDeviceName(finalName);
     onDeviceNameChange?.(finalName);
     try {
       localStorage.setItem("phoneframe_device_nickname", finalName);
     } catch {}
+    setCustomDeviceName("");
     setIsNamingStep(false);
     // If device is already online and authorized, jump directly to ready
     if (isDeviceOnline) {
@@ -265,6 +253,7 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
     if (currentStepIndex > 0) {
       setCurrentStepIndex(currentStepIndex - 1);
     } else {
+      setCustomDeviceName("");
       setIsNamingStep(true);
     }
   };
@@ -404,6 +393,7 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
             <button
               type="button"
               onClick={() => {
+                setCustomDeviceName("");
                 setMode("usb");
                 setIsNamingStep(true);
               }}
@@ -473,6 +463,7 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
             <button
               type="button"
               onClick={() => {
+                setCustomDeviceName("");
                 setMode("wifi");
                 setIsNamingStep(true);
               }}
@@ -653,7 +644,7 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
           </div>
         </div>
 
-        {/* Center Content: Device Naming Card */}
+        {/* Center Content: Device Naming View with Separate Dedicated Input Card */}
         <div
           style={{
             flex: 1,
@@ -684,6 +675,18 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
           </div>
 
           <div>
+            <div
+              style={{
+                fontSize: "9px",
+                fontWeight: 700,
+                letterSpacing: "0.08em",
+                color: isWifiMode ? "var(--accent)" : "var(--mist-400)",
+                textTransform: "uppercase",
+                marginBottom: "3px",
+              }}
+            >
+              Step 1 of 2 • Device Identity
+            </div>
             <h2
               style={{
                 fontSize: "15px",
@@ -704,58 +707,112 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
                 margin: "0 auto",
               }}
             >
-              Give this device any nickname or label you want. It will appear on the top HUD panel above the phone frame.
+              Enter any custom nickname for this screen. This starts fresh on every connection.
             </p>
           </div>
 
+          {/* Separate Dedicated Input Name Card */}
           <div
             style={{
               width: "100%",
-              maxWidth: "270px",
+              maxWidth: "285px",
+              backgroundColor: "var(--ink-900)",
+              borderRadius: "var(--radius-md)",
+              border: "1px solid var(--border)",
+              boxShadow: "0 4px 18px rgba(0, 0, 0, 0.45)",
+              padding: "14px",
               display: "flex",
               flexDirection: "column",
-              gap: "8px",
+              gap: "10px",
+              boxSizing: "border-box",
             }}
           >
-            <div style={{ display: "flex", flexDirection: "column", gap: "4px", textAlign: "left" }}>
-              <label
-                style={{
-                  fontSize: "9.5px",
-                  fontWeight: 600,
-                  color: "var(--mist-400)",
-                  textTransform: "uppercase",
-                  letterSpacing: "0.06em",
-                }}
-              >
-                Device Nickname
-              </label>
-              <input
-                type="text"
-                autoFocus
-                value={customDeviceName}
-                onChange={(e) => setCustomDeviceName(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    handleConfirmName();
-                  }
-                }}
-                placeholder={activeDevice?.model || (isWifiMode ? "My Wi-Fi Phone" : "My USB Phone")}
-                className="mono-data"
-                style={{
-                  width: "100%",
-                  padding: "8px 12px",
-                  borderRadius: "var(--radius-sm)",
-                  backgroundColor: "var(--ink-950)",
-                  border: "1px solid var(--border)",
-                  color: "var(--mist-100)",
-                  fontSize: "12px",
-                  outline: "none",
-                  boxSizing: "border-box",
-                  transition: "border-color 140ms ease",
-                }}
-                onFocus={(e) => (e.currentTarget.style.borderColor = "var(--mist-200)")}
-                onBlur={(e) => (e.currentTarget.style.borderColor = "var(--border)")}
-              />
+            <div style={{ display: "flex", flexDirection: "column", gap: "5px", textAlign: "left" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <label
+                  style={{
+                    fontSize: "9.5px",
+                    fontWeight: 600,
+                    color: "var(--mist-400)",
+                    textTransform: "uppercase",
+                    letterSpacing: "0.06em",
+                  }}
+                >
+                  Custom Name
+                </label>
+                {customDeviceName && (
+                  <button
+                    type="button"
+                    onClick={() => setCustomDeviceName("")}
+                    style={{
+                      fontSize: "9.5px",
+                      color: "var(--mist-400)",
+                      padding: "1px 4px",
+                      borderRadius: "3px",
+                      cursor: "pointer",
+                    }}
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+
+              <div style={{ position: "relative", width: "100%" }}>
+                <input
+                  type="text"
+                  autoFocus
+                  value={customDeviceName}
+                  onChange={(e) => setCustomDeviceName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      handleConfirmName();
+                    }
+                  }}
+                  placeholder={activeDevice?.model || (isWifiMode ? "e.g. My Phone (Wi-Fi)" : "e.g. My Phone (USB)")}
+                  className="mono-data"
+                  style={{
+                    width: "100%",
+                    padding: customDeviceName ? "8px 26px 8px 10px" : "8px 10px",
+                    borderRadius: "var(--radius-sm)",
+                    backgroundColor: "var(--ink-950)",
+                    border: "1px solid var(--border)",
+                    color: "var(--mist-100)",
+                    fontSize: "12px",
+                    outline: "none",
+                    boxSizing: "border-box",
+                    transition: "border-color 140ms ease",
+                  }}
+                  onFocus={(e) => (e.currentTarget.style.borderColor = "var(--mist-200)")}
+                  onBlur={(e) => (e.currentTarget.style.borderColor = "var(--border)")}
+                />
+                {customDeviceName && (
+                  <button
+                    type="button"
+                    onClick={() => setCustomDeviceName("")}
+                    title="Clear input"
+                    style={{
+                      position: "absolute",
+                      right: "6px",
+                      top: "50%",
+                      transform: "translateY(-50%)",
+                      width: "16px",
+                      height: "16px",
+                      borderRadius: "50%",
+                      backgroundColor: "rgba(255, 255, 255, 0.08)",
+                      border: "none",
+                      color: "var(--mist-400)",
+                      fontSize: "10px",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      padding: 0,
+                      cursor: "pointer",
+                    }}
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
             </div>
 
             {activeDevice?.model && (
@@ -767,7 +824,7 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
                   alignItems: "center",
                   justifyContent: "center",
                   gap: "4px",
-                  padding: "4px 8px",
+                  padding: "5px 8px",
                   borderRadius: "var(--radius-sm)",
                   backgroundColor: "var(--ink-950)",
                   border: "1px dashed var(--border)",
@@ -796,7 +853,6 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
                 color: "#06141B",
                 fontWeight: 700,
                 fontSize: "11.5px",
-                marginTop: "6px",
                 cursor: "pointer",
                 boxShadow: "0 2px 8px rgba(0, 0, 0, 0.4)",
                 transition: "opacity 140ms ease, transform 140ms ease",
