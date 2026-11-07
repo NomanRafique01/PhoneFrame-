@@ -69,9 +69,27 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
 
   // Manual-detection mode: do NOT automatically jump to Ready when an ADB device is plugged in.
   // Detect only when the user explicitly clicks "Search for Phone" / scan.
-  // If the currently discovered device goes offline, clear it cleanly.
+  // If the currently discovered device goes offline, clear it cleanly without dropping wireless when USB unplugs.
   useEffect(() => {
     if (discoveredDevice) {
+      const isWirelessMode = hasSwitched || Boolean(discoveredDevice.isWireless);
+      const targetSerial = isWirelessMode
+        ? (switchResult?.serial || (discoveredDevice.isWireless ? discoveredDevice.serial : null))
+        : discoveredDevice.serial;
+
+      if (isWirelessMode && targetSerial) {
+        const stillOnline = adbStatus?.devices?.some(
+          (d) => d.serial === targetSerial && d.state === "device"
+        );
+        if (!stillOnline) {
+          setDiscoveredDevice(null);
+          setHasSwitched(false);
+          setSwitchResult(null);
+          setConnectionFeedback("Wi-Fi connection lost. Click 'Search for Phone' or reconnect USB.");
+        }
+        return;
+      }
+
       const stillOnline = adbStatus?.devices?.some(
         (d) => d.serial === discoveredDevice.serial && d.state === "device"
       );
@@ -80,7 +98,7 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
         setConnectionFeedback("Device disconnected. Click 'Search for Phone' to scan for an available device.");
       }
     }
-  }, [adbStatus?.devices, discoveredDevice]);
+  }, [adbStatus?.devices, discoveredDevice, hasSwitched, switchResult?.serial]);
 
   const activeDevice = discoveredDevice;
   const isDeviceOnline = Boolean(discoveredDevice && discoveredDevice.state === "device");
@@ -199,9 +217,33 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
   const handleNext = () => {
     if (isReady) {
       onComplete?.(activeDevice?.serial);
-    } else if (mode === "usb" && currentStep?.id === "ready" && (!isDeviceOnline || activeDevice?.isWireless)) {
-      handleSearchPhone();
-    } else if (currentStepIndex < steps.length - 1) {
+      return;
+    }
+
+    if (mode === "wifi") {
+      // User CANNOT advance to Step 4/5 (Ready) unless they have connected and switched to wireless mode
+      if (currentStep?.id === "wifi_pair" || currentStepIndex >= 2) {
+        if (!hasSwitched && !activeDevice?.isWireless) {
+          if (!activeDevice) {
+            setConnectionFeedback("Connect phone via USB and click 'Search for Phone' before advancing.");
+          } else {
+            setConnectionFeedback("Click 'Switch to Wi-Fi Mode' above to enable wireless connection before advancing.");
+          }
+          return;
+        }
+      }
+    } else if (mode === "usb") {
+      // User CANNOT advance to Step 5 (Ready) unless an authorized USB device is detected
+      if (currentStepIndex === 3) {
+        if (!isDeviceOnline || activeDevice?.isWireless) {
+          handleSearchPhone();
+          setConnectionFeedback("Please connect your phone via USB and authorize USB debugging to proceed to Ready.");
+          return;
+        }
+      }
+    }
+
+    if (currentStepIndex < steps.length - 1) {
       setCurrentStepIndex(currentStepIndex + 1);
     } else {
       onComplete?.(activeDevice?.serial);
@@ -306,7 +348,19 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
         const target = `${res.ip}:5555`;
         setHasSwitched(true);
         setSwitchResult({ ip: res.ip, serial: target });
-        setConnectionFeedback(`Connected to ${target}`);
+
+        // Update discoveredDevice to the wireless target so unplugging USB does not break it
+        const wifiDevice: AdbDeviceInfo = {
+          serial: target,
+          state: "device",
+          model: activeDevice.model,
+          isWireless: true,
+          width: activeDevice.width,
+          height: activeDevice.height,
+        };
+        setDiscoveredDevice(wifiDevice);
+
+        setConnectionFeedback(`✓ Connected to ${target}! You can now unplug the USB cable.`);
         setCurrentStepIndex(3); // Ready in Wi-Fi mode
       } else {
         setConnectionFeedback(res.error || "Failed to switch to Wi-Fi mode");
@@ -1022,7 +1076,19 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
           return (
             <button
               key={s.id}
-              onClick={() => setCurrentStepIndex(idx)}
+              onClick={() => {
+                if (idx === steps.length - 1) {
+                  if (mode === "wifi" && !hasSwitched && !activeDevice?.isWireless) {
+                    setConnectionFeedback("Connect phone via USB and click 'Switch to Wi-Fi Mode' first.");
+                    return;
+                  }
+                  if (mode === "usb" && (!isDeviceOnline || activeDevice?.isWireless)) {
+                    setConnectionFeedback("Connect phone via USB and authorize debugging first.");
+                    return;
+                  }
+                }
+                setCurrentStepIndex(idx);
+              }}
               style={{
                 flex: 1,
                 height: "3px",
@@ -1034,7 +1100,7 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
                   : "var(--ink-800)",
                 padding: 0,
                 border: "none",
-                cursor: "pointer",
+                cursor: idx === steps.length - 1 && !isReady ? "not-allowed" : "pointer",
                 transition: "background-color 140ms ease",
               }}
               title={s.title}

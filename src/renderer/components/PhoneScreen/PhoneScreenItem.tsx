@@ -212,6 +212,75 @@ export const PhoneScreenItem: React.FC<PhoneScreenItemProps> = ({
     onSerialReleased?.();
   };
 
+  const handleSwitchToWifi = async () => {
+    const serial = activeDevice?.serial;
+    if (!serial || !window.electronAPI) {
+      showSessionNotice("No device available to switch to Wi-Fi.");
+      return;
+    }
+    if (wifiBusy) return;
+
+    setWifiBusy(true);
+    setWifiMsg("Querying phone IP and enabling Wi-Fi mode…");
+
+    try {
+      const res = await window.electronAPI.enableWireless(serial);
+      if (res.success && res.ip) {
+        const wifiSerial = `${res.ip}:5555`;
+        setWifiMsg(`Connected to ${wifiSerial}! Switching stream…`);
+
+        if (mirrorState === "running" || mirrorState === "starting") {
+          try {
+            await window.electronAPI.stopMirror(screenId);
+          } catch {}
+          await new Promise((r) => setTimeout(r, 600));
+        }
+
+        setIsWizardActive(false);
+        onSerialAssigned?.(wifiSerial);
+        try {
+          await window.electronAPI.startMirror(wifiSerial, screenId);
+          setWifiMsg("✓ Streaming over Wi-Fi! You can now unplug the USB cable.");
+        } catch (startErr: any) {
+          setWifiMsg(`Connected to Wi-Fi (${wifiSerial}), but failed to start stream.`);
+        }
+      } else {
+        setWifiMsg(`✕ ${res.error || "Failed to switch to Wi-Fi"}`);
+      }
+    } catch (e: any) {
+      setWifiMsg(`✕ ${e?.message || "Error switching to Wi-Fi"}`);
+    } finally {
+      setWifiBusy(false);
+      setTimeout(() => {
+        setWifiMsg((prev) => (prev?.startsWith("✓") ? null : prev));
+      }, 7000);
+    }
+  };
+
+  const handleDisconnectWifi = async () => {
+    if (!window.electronAPI) return;
+    const serial = activeDevice?.serial;
+    setWifiBusy(true);
+    setWifiMsg("Disconnecting Wi-Fi…");
+    try {
+      if (mirrorState === "running" || mirrorState === "starting") {
+        await window.electronAPI.stopMirror(screenId);
+      }
+      if (serial) {
+        await window.electronAPI.disconnectWireless(serial);
+      }
+      setIsWizardActive(true);
+      onSerialReleased?.();
+      setWifiMsg("Wi-Fi disconnected");
+      showSessionNotice("Wi-Fi stream disconnected.");
+    } catch (e: any) {
+      setWifiMsg(e?.message || "Error disconnecting Wi-Fi");
+    } finally {
+      setWifiBusy(false);
+      setTimeout(() => setWifiMsg(null), 4000);
+    }
+  };
+
   const handleRotate = () => {
     const nextOrientation = options.orientation === "portrait" ? "landscape" : "portrait";
     onOptionsChange({ ...options, orientation: nextOrientation });
@@ -343,6 +412,8 @@ export const PhoneScreenItem: React.FC<PhoneScreenItemProps> = ({
           isWireless={Boolean(activeDevice?.isWireless)}
           isStreaming={isStreaming}
           wifiBusy={wifiBusy}
+          onSwitchToWifi={handleSwitchToWifi}
+          onDisconnectWifi={handleDisconnectWifi}
           showInspector={isInspecting}
           onToggleInspector={onToggleInspector}
           onMinimize={onMinimize}
