@@ -15,7 +15,7 @@ Allow developers to open up to 4 concurrent, fully functional, independent phone
   - Add "Add Screen" action button in `FloatingHUD` (active when screens < 4).
   - Refactor frontend into multi-instance screen registry (`ScreenInstance[]`).
   - Stagger spawn positions and independent frame controls/custom names per screen.
-- [ ] **Phase 3: Spatial Overlap Collision Engine & Smooth Depth Dimming**
+- [x] **Phase 3: Spatial Overlap Collision Engine & Smooth Depth Dimming**
   - Implement 2D bounding-box collision detection between phone frames.
   - Dim underneath screens (opacity down to ~0.35) during overlap.
   - Restore full opacity smoothly when clear with spring transitions.

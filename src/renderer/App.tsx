@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import {
   FrameControls,
   type PhoneFrameOptions,
@@ -25,6 +25,67 @@ export interface ScreenInstance {
   isHovered: boolean;
   dragMode: boolean;
   isScreenInteracting: boolean;
+}
+
+interface Rect {
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+}
+
+export function getScreenFrameDimensions(options: PhoneFrameOptions, scale: number) {
+  const scaledBaseScreenWidth = Math.round((360 * scale) / 100);
+  const scaledBezelWidth = Math.round((options.bezelWidth * scale) / 100);
+  const isPortrait = options.orientation === "portrait";
+  const ratioMultiplier = options.aspectRatio.height / options.aspectRatio.width;
+  const screenWidth = Math.round(
+    isPortrait ? scaledBaseScreenWidth : scaledBaseScreenWidth * ratioMultiplier
+  );
+  const screenHeight = Math.round(
+    isPortrait ? scaledBaseScreenWidth * ratioMultiplier : scaledBaseScreenWidth
+  );
+  return {
+    width: screenWidth + scaledBezelWidth * 2,
+    height: screenHeight + scaledBezelWidth * 2,
+  };
+}
+
+function getBoundingRect(screen: ScreenInstance): Rect {
+  const { width, height } = getScreenFrameDimensions(screen.options, screen.scale);
+  const halfW = width / 2;
+  const halfH = height / 2;
+  return {
+    left: screen.offset.x - halfW,
+    right: screen.offset.x + halfW,
+    top: screen.offset.y - halfH,
+    bottom: screen.offset.y + halfH,
+  };
+}
+
+function doRectsIntersect(a: Rect, b: Rect): boolean {
+  return !(a.right <= b.left || a.left >= b.right || a.bottom <= b.top || a.top >= b.bottom);
+}
+
+function computeUnderneathScreens(screens: ScreenInstance[]): Set<string> {
+  const underneath = new Set<string>();
+  if (screens.length <= 1) return underneath;
+
+  const rects = screens.map((s) => ({ screen: s, rect: getBoundingRect(s) }));
+
+  for (let i = 0; i < rects.length; i++) {
+    for (let j = 0; j < rects.length; j++) {
+      if (i === j) continue;
+      const a = rects[i]; // higher zIndex candidate
+      const b = rects[j]; // lower zIndex candidate
+
+      if (a.screen.zIndex > b.screen.zIndex && doRectsIntersect(a.rect, b.rect)) {
+        underneath.add(b.screen.id);
+      }
+    }
+  }
+
+  return underneath;
 }
 
 export const App: React.FC = () => {
@@ -445,6 +506,8 @@ export const App: React.FC = () => {
     }
   };
 
+  const underneathScreens = useMemo(() => computeUnderneathScreens(screens), [screens]);
+
   return (
     <div
       className="floating-phone-root"
@@ -473,17 +536,21 @@ export const App: React.FC = () => {
           height: "100%",
         }}
       >
-        {screens.map((screen) => (
-          <PhoneScreenItem
-            key={screen.id}
-            screenId={screen.id}
-            name={screen.name}
-            options={screen.options}
-            scale={screen.scale}
-            offset={screen.offset}
-            zIndex={screen.zIndex}
-            opacity={screen.opacity}
-            isDragging={screen.isDragging}
+        {screens.map((screen) => {
+          const isUnderneath = underneathScreens.has(screen.id);
+          const screenOpacity = isUnderneath ? 0.35 : 1;
+
+          return (
+            <PhoneScreenItem
+              key={screen.id}
+              screenId={screen.id}
+              name={screen.name}
+              options={screen.options}
+              scale={screen.scale}
+              offset={screen.offset}
+              zIndex={screen.zIndex}
+              opacity={screenOpacity}
+              isDragging={screen.isDragging}
             isHovered={screen.isHovered}
             dragMode={screen.dragMode}
             isPinned={isPinned}
@@ -537,7 +604,8 @@ export const App: React.FC = () => {
             onMinimize={handleMinimize}
             onClose={handleClose}
           />
-        ))}
+        );
+      })}
       </div>
 
       {/* Immersive-mode controls */}

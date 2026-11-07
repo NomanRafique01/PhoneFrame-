@@ -254,10 +254,11 @@ export const PhoneScreenItem: React.FC<PhoneScreenItemProps> = ({
         display: "flex",
         zIndex,
         opacity,
+        filter: opacity < 0.95 ? "brightness(0.92)" : "none",
         transform: `translate(${offset.x}px, ${offset.y}px)`,
         transition: isDragging
           ? "none"
-          : "transform 320ms cubic-bezier(0.16, 1, 0.3, 1), opacity 280ms cubic-bezier(0.22, 1, 0.36, 1)",
+          : "transform 320ms cubic-bezier(0.16, 1, 0.3, 1), opacity 280ms cubic-bezier(0.22, 1, 0.36, 1), filter 280ms ease",
       }}
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
