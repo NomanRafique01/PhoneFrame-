@@ -6,7 +6,7 @@ import {
   DEFAULT_CUSTOM_FRAME_HEX,
   resolveFrameColor,
 } from "./components/PhoneFrame";
-import { FloatingHUD } from "./components/HUD/FloatingHUD";
+import { FloatingHUD, DeviceNameHUD } from "./components/HUD";
 import { FullscreenControls } from "./components/FullscreenControls/FullscreenControls";
 import { SetupWizard } from "./components/SetupWizard";
 import { VideoCanvas } from "./components/VideoCanvas/VideoCanvas";
@@ -87,6 +87,15 @@ export const App: React.FC = () => {
     } catch {
       return 70;
     }
+  });
+  const [deviceName, setDeviceName] = useState<string>(() => {
+    try {
+      const saved = localStorage.getItem("phoneframe_device_nickname");
+      if (saved && saved.trim()) return saved.trim();
+    } catch {
+      // Ignore storage restrictions
+    }
+    return "";
   });
   const [showInspector, setShowInspector] = useState(false);
   const [isWizardActive, setIsWizardActive] = useState(true);
@@ -214,6 +223,17 @@ export const App: React.FC = () => {
       // Ignore storage restrictions
     }
   }, [dpadEnabled]);
+
+  // Persist the custom device nickname across sessions
+  useEffect(() => {
+    if (deviceName && deviceName.trim()) {
+      try {
+        localStorage.setItem("phoneframe_device_nickname", deviceName.trim());
+      } catch {
+        // Ignore storage restrictions
+      }
+    }
+  }, [deviceName]);
 
   usePhoneAudio(audioMuted, audioVolume);
 
@@ -810,6 +830,7 @@ export const App: React.FC = () => {
   const isDeviceConnected = adbStatus.state === "device";
   const isStreaming = mirrorState === "running";
   const isStarting = mirrorState === "starting";
+  const currentDeviceName = deviceName.trim() || activeDevice?.model || "Android Device";
   // Shared visibility for the drawer: phone hover (phone + HUD are one wrapper,
   // so moving between them never flickers), drag, inspector, or touch toggle.
   // A manual collapse always wins and hands over to the hardware side key.
@@ -889,6 +910,17 @@ export const App: React.FC = () => {
           onPointerCancel={handleDragEnd}
           onLostPointerCapture={handleLostPointerCapture}
         >
+          {/* Top Device Name Panel: scales dynamically with frameScale and reveals in lockstep with HUD */}
+          <DeviceNameHUD
+            name={currentDeviceName}
+            isStreaming={isStreaming}
+            isDeviceConnected={isDeviceConnected}
+            isWireless={Boolean(activeDevice?.isWireless)}
+            frameScale={frameScale}
+            visible={effectiveHudVisible}
+            onClick={() => setShowInspector((prev) => !prev)}
+          />
+
           {/* Floating Contextual HUD — slides out from behind the right bezel like a drawer */}
           <div
             className="hud-drawer"
@@ -1048,6 +1080,8 @@ export const App: React.FC = () => {
                 <SetupWizard
                   adbStatus={adbStatus}
                   notice={sessionNotice}
+                  deviceName={deviceName}
+                  onDeviceNameChange={setDeviceName}
                   onComplete={handleStartMirror}
                   onDismiss={() => setIsWizardActive(false)}
                 />
@@ -1343,6 +1377,10 @@ export const App: React.FC = () => {
 
             <table className="mono-data" style={{ width: "100%", fontSize: "11px", borderCollapse: "collapse" }}>
               <tbody>
+                <tr>
+                  <td style={{ color: "var(--text-muted)", padding: "2px 0" }}>Name:</td>
+                  <td style={{ textAlign: "right", color: "var(--mist-100)", fontWeight: 600 }}>{currentDeviceName}</td>
+                </tr>
                 <tr>
                   <td style={{ color: "var(--text-muted)", padding: "2px 0" }}>Devices:</td>
                   <td style={{ textAlign: "right", color: "var(--mist-200)" }}>{adbStatus.devices.length}</td>

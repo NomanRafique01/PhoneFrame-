@@ -36,6 +36,8 @@ interface WizardStep {
 interface SetupWizardProps {
   adbStatus?: AdbStatusPayload;
   notice?: string | null;
+  deviceName?: string;
+  onDeviceNameChange?: (name: string) => void;
   onComplete?: () => void;
   onDismiss?: () => void;
 }
@@ -43,12 +45,29 @@ interface SetupWizardProps {
 export const SetupWizard: React.FC<SetupWizardProps> = ({
   adbStatus,
   notice,
+  deviceName = "",
+  onDeviceNameChange,
   onComplete,
   onDismiss,
 }) => {
   const [mode, setMode] = useState<ConnectionMode | null>(null);
+  const [isNamingStep, setIsNamingStep] = useState(false);
+  const [customDeviceName, setCustomDeviceName] = useState<string>(() => {
+    if (deviceName && deviceName.trim()) return deviceName.trim();
+    try {
+      const saved = localStorage.getItem("phoneframe_device_nickname");
+      if (saved && saved.trim()) return saved.trim();
+    } catch {}
+    return "";
+  });
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
   const [tapCounter, setTapCounter] = useState(0);
+
+  useEffect(() => {
+    if (deviceName && deviceName.trim()) {
+      setCustomDeviceName(deviceName.trim());
+    }
+  }, [deviceName]);
 
   // Wireless Wi-Fi switch states
   const [isScanning, setIsScanning] = useState(false);
@@ -68,6 +87,10 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
 
     // Only react when ADB state transitions (e.g. unauthorized -> device, or no-device -> device)
     if (prevState !== adbStatus.state) {
+      if (isNamingStep) {
+        // Do not interrupt active naming step if device arrives; name step will proceed to ready
+        return;
+      }
       if (adbStatus.state === "unauthorized" && mode === "usb") {
         setCurrentStepIndex(3); // Step 4: RSA Auth
       } else if (adbStatus.state === "device") {
@@ -81,10 +104,11 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
       } else if (adbStatus.state === "no-device") {
         // Smoothly return directly to the mode selection screen on disconnect
         setMode(null);
+        setIsNamingStep(false);
         setCurrentStepIndex(0);
       }
     }
-  }, [adbStatus?.state, adbStatus?.activeDevice?.isWireless, mode]);
+  }, [adbStatus?.state, adbStatus?.activeDevice?.isWireless, mode, isNamingStep]);
 
   const activeDevice = adbStatus?.activeDevice;
   const isDeviceOnline = adbStatus?.state === "device";
@@ -212,11 +236,36 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
     }
   };
 
+  const handleConfirmName = () => {
+    const finalName =
+      customDeviceName.trim() ||
+      activeDevice?.model ||
+      (mode === "wifi" ? "Wi-Fi Device" : "USB Device");
+    setCustomDeviceName(finalName);
+    onDeviceNameChange?.(finalName);
+    try {
+      localStorage.setItem("phoneframe_device_nickname", finalName);
+    } catch {}
+    setIsNamingStep(false);
+    // If device is already online and authorized, jump directly to ready
+    if (isDeviceOnline) {
+      if (mode === "usb" && !activeDevice?.isWireless) {
+        setCurrentStepIndex(4);
+        return;
+      }
+      if (mode === "wifi" && (hasSwitched || activeDevice?.isWireless)) {
+        setCurrentStepIndex(3);
+        return;
+      }
+    }
+    setCurrentStepIndex(0);
+  };
+
   const handlePrev = () => {
     if (currentStepIndex > 0) {
       setCurrentStepIndex(currentStepIndex - 1);
     } else {
-      setMode(null);
+      setIsNamingStep(true);
     }
   };
 
@@ -356,7 +405,7 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
               type="button"
               onClick={() => {
                 setMode("usb");
-                setCurrentStepIndex(0);
+                setIsNamingStep(true);
               }}
               style={{
                 display: "flex",
@@ -425,7 +474,7 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
               type="button"
               onClick={() => {
                 setMode("wifi");
-                setCurrentStepIndex(0);
+                setIsNamingStep(true);
               }}
               style={{
                 display: "flex",
@@ -525,6 +574,274 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
             {isDeviceOnline
               ? `Hardware Ready: ${activeDevice?.model || activeDevice?.serial}`
               : "Waiting for mode selection..."}
+          </span>
+        </div>
+      </div>
+    );
+  }
+
+  // Device Naming Screen (Appears after choosing USB or Wi-Fi mode)
+  if (isNamingStep && mode !== null) {
+    const isWifiMode = mode === "wifi";
+    return (
+      <div
+        className="setup-wizard"
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          height: "100%",
+          width: "100%",
+          backgroundColor: "#050B0E",
+          color: "var(--mist-200)",
+          padding: "var(--space-4)",
+          boxSizing: "border-box",
+          position: "relative",
+          userSelect: "none",
+          overflowY: "auto",
+        }}
+      >
+        {/* Top Header Strip */}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            marginBottom: "var(--space-2)",
+          }}
+        >
+          <button
+            type="button"
+            onClick={() => {
+              setIsNamingStep(false);
+              setMode(null);
+            }}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "4px",
+              padding: "4px 8px",
+              borderRadius: "var(--radius-sm)",
+              backgroundColor: "transparent",
+              border: "1px solid var(--border)",
+              color: "var(--mist-400)",
+              fontSize: "11px",
+              cursor: "pointer",
+            }}
+          >
+            <ChevronLeftIcon size={12} />
+            <span>Back</span>
+          </button>
+
+          <div
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "5px",
+              padding: "3px 8px",
+              borderRadius: "var(--radius-sm)",
+              backgroundColor: "var(--ink-900)",
+              border: "1px solid var(--border)",
+              fontSize: "10px",
+              fontWeight: 600,
+              color: isWifiMode ? "var(--accent)" : "var(--mist-200)",
+              textTransform: "uppercase",
+              letterSpacing: "0.06em",
+            }}
+          >
+            {isWifiMode ? <WifiIcon size={11} /> : <UsbIcon size={11} />}
+            <span>{isWifiMode ? "Wi-Fi Mode" : "USB Mode"}</span>
+          </div>
+        </div>
+
+        {/* Center Content: Device Naming Card */}
+        <div
+          style={{
+            flex: 1,
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            textAlign: "center",
+            gap: "14px",
+            padding: "0 8px",
+          }}
+        >
+          <div
+            style={{
+              width: "44px",
+              height: "44px",
+              borderRadius: "50%",
+              backgroundColor: "var(--ink-900)",
+              border: "1px solid var(--border)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              color: "var(--mist-200)",
+              boxShadow: "0 4px 12px rgba(0, 0, 0, 0.4)",
+            }}
+          >
+            <SmartphoneIcon size={22} />
+          </div>
+
+          <div>
+            <h2
+              style={{
+                fontSize: "15px",
+                fontWeight: 700,
+                color: "var(--mist-100)",
+                marginBottom: "4px",
+                letterSpacing: "-0.01em",
+              }}
+            >
+              Name Your Device
+            </h2>
+            <p
+              style={{
+                fontSize: "11px",
+                color: "var(--mist-400)",
+                lineHeight: 1.4,
+                maxWidth: "260px",
+                margin: "0 auto",
+              }}
+            >
+              Give this device any nickname or label you want. It will appear on the top HUD panel above the phone frame.
+            </p>
+          </div>
+
+          <div
+            style={{
+              width: "100%",
+              maxWidth: "270px",
+              display: "flex",
+              flexDirection: "column",
+              gap: "8px",
+            }}
+          >
+            <div style={{ display: "flex", flexDirection: "column", gap: "4px", textAlign: "left" }}>
+              <label
+                style={{
+                  fontSize: "9.5px",
+                  fontWeight: 600,
+                  color: "var(--mist-400)",
+                  textTransform: "uppercase",
+                  letterSpacing: "0.06em",
+                }}
+              >
+                Device Nickname
+              </label>
+              <input
+                type="text"
+                autoFocus
+                value={customDeviceName}
+                onChange={(e) => setCustomDeviceName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    handleConfirmName();
+                  }
+                }}
+                placeholder={activeDevice?.model || (isWifiMode ? "My Wi-Fi Phone" : "My USB Phone")}
+                className="mono-data"
+                style={{
+                  width: "100%",
+                  padding: "8px 12px",
+                  borderRadius: "var(--radius-sm)",
+                  backgroundColor: "var(--ink-950)",
+                  border: "1px solid var(--border)",
+                  color: "var(--mist-100)",
+                  fontSize: "12px",
+                  outline: "none",
+                  boxSizing: "border-box",
+                  transition: "border-color 140ms ease",
+                }}
+                onFocus={(e) => (e.currentTarget.style.borderColor = "var(--mist-200)")}
+                onBlur={(e) => (e.currentTarget.style.borderColor = "var(--border)")}
+              />
+            </div>
+
+            {activeDevice?.model && (
+              <button
+                type="button"
+                onClick={() => setCustomDeviceName(activeDevice.model || "")}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: "4px",
+                  padding: "4px 8px",
+                  borderRadius: "var(--radius-sm)",
+                  backgroundColor: "var(--ink-950)",
+                  border: "1px dashed var(--border)",
+                  fontSize: "10px",
+                  color: "var(--mist-400)",
+                  cursor: "pointer",
+                }}
+              >
+                <span>Use detected:</span>
+                <span style={{ color: "var(--mist-200)", fontWeight: 600 }}>{activeDevice.model}</span>
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={handleConfirmName}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: "6px",
+                width: "100%",
+                padding: "8px 14px",
+                borderRadius: "var(--radius-sm)",
+                backgroundColor: "var(--mist-200)",
+                color: "#06141B",
+                fontWeight: 700,
+                fontSize: "11.5px",
+                marginTop: "6px",
+                cursor: "pointer",
+                boxShadow: "0 2px 8px rgba(0, 0, 0, 0.4)",
+                transition: "opacity 140ms ease, transform 140ms ease",
+              }}
+            >
+              <span>Continue</span>
+              <ChevronRightIcon size={13} />
+            </button>
+          </div>
+        </div>
+
+        {/* Status indicator bar */}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "8px",
+            padding: "6px 10px",
+            backgroundColor: "var(--ink-950)",
+            borderRadius: "var(--radius-sm)",
+            border: "1px solid var(--border)",
+          }}
+        >
+          <span
+            style={{
+              width: "7px",
+              height: "7px",
+              borderRadius: "50%",
+              backgroundColor: isDeviceOnline ? "var(--success)" : "var(--ink-600)",
+              flexShrink: 0,
+            }}
+          />
+          <span
+            className="mono-data"
+            style={{
+              fontSize: "10.5px",
+              color: isDeviceOnline ? "var(--success)" : "var(--mist-400)",
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+            }}
+          >
+            {isDeviceOnline
+              ? `Hardware: ${activeDevice?.model || activeDevice?.serial}`
+              : "Waiting for connection..."}
           </span>
         </div>
       </div>

@@ -332,6 +332,10 @@ button:focus-visible {
     transition: opacity 120ms linear !important;
     transform: translateY(-50%) !important;
   }
+  .device-name-hud {
+    transition: opacity 120ms linear !important;
+    transform: translateX(-50%) !important;
+  }
   .stream-starting-dot {
     animation: none;
     opacity: 1;
