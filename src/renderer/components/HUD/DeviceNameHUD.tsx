@@ -42,14 +42,14 @@ export const DeviceNameHUD: React.FC<DeviceNameHUDProps> = ({
       onClick={onClick}
       style={{
         position: "absolute",
-        bottom: "calc(100% + 10px)",
+        bottom: "100%",
         left: "50%",
         zIndex: 100,
         opacity: visible ? 1 : 0,
         pointerEvents: visible ? "auto" : "none",
         transform: visible
           ? "translateX(-50%) translateY(0)"
-          : "translateX(-50%) translateY(-12px)",
+          : "translateX(-50%) translateY(-8px)",
         transition: visible
           ? "transform 400ms cubic-bezier(0.22, 1, 0.36, 1), opacity 260ms cubic-bezier(0.22, 1, 0.36, 1)"
           : "transform 300ms cubic-bezier(0.22, 1, 0.36, 1), opacity 220ms cubic-bezier(0.22, 1, 0.36, 1)",
@@ -64,9 +64,10 @@ export const DeviceNameHUD: React.FC<DeviceNameHUDProps> = ({
           backgroundColor: "rgba(17, 33, 45, 0.94)",
           backdropFilter: "blur(12px)",
           WebkitBackdropFilter: "blur(12px)",
-          borderRadius: `${scaledRadius}px`,
+          borderRadius: `${scaledRadius}px ${scaledRadius}px 0 0`,
           border: "1px solid var(--border)",
-          boxShadow: "var(--shadow-hud)",
+          borderBottom: "none",
+          boxShadow: "0 -4px 16px -2px rgba(0, 0, 0, 0.5), 0 -1px 0 rgba(255, 255, 255, 0.06)",
           color: "var(--mist-100)",
           cursor: onClick ? "pointer" : "default",
           userSelect: "none",
