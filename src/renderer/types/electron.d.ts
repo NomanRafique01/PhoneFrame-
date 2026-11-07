@@ -65,7 +65,7 @@ export interface FloatingPhoneAPI {
   enableWireless: (serial: string) => Promise<{ success: boolean; ip?: string; error?: string }>;
   connectWireless: (target: string) => Promise<{ success: boolean; message: string }>;
   disconnectWireless: (target: string) => Promise<{ success: boolean; message: string }>;
-  pairWireless: (target: string, code: string) => Promise<{ success: boolean; message: string }>;
+  pairWireless: (target: string, code: string, connectPort?: string) => Promise<{ success: boolean; message: string }>;
 
   // Real Mirroring
   startMirror: (serial: string) => Promise<boolean>;

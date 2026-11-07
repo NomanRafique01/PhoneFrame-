@@ -9,9 +9,9 @@ import {
   CheckIcon,
   ChevronRightIcon,
   ChevronLeftIcon,
-  QrCodeIcon,
+  RefreshCwIcon,
+  SearchIcon,
 } from "../icons";
-import { QRCodeCard } from "../QRCode";
 
 export type ConnectionMode = "usb" | "wifi";
 export type WizardStepId =
@@ -50,11 +50,11 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
   const [tapCounter, setTapCounter] = useState(0);
 
-  // Manual Wi-Fi input states
-  const [manualTarget, setManualTarget] = useState("");
-  const [pairingCode, setPairingCode] = useState("");
-  const [wifiPairTab, setWifiPairTab] = useState<"qr" | "manual" | "switch">("qr");
+  // Wireless Wi-Fi switch states
+  const [isScanning, setIsScanning] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
+  const [hasSwitched, setHasSwitched] = useState(false);
+  const [switchResult, setSwitchResult] = useState<{ ip?: string; serial?: string } | null>(null);
   const [connectionFeedback, setConnectionFeedback] = useState<string | null>(null);
 
   // Automatically react to real hardware state changes from ADB
@@ -62,20 +62,18 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
     if (!adbStatus) return;
 
     if (adbStatus.state === "unauthorized") {
-      // Prompt is currently appearing on phone screen!
       if (mode === "usb") {
         setCurrentStepIndex(3); // Step 4: RSA Auth
       }
     } else if (adbStatus.state === "device") {
-      // If a wireless device connected, switch to Wi-Fi mode
-      if (adbStatus.activeDevice?.isWireless) {
-        setMode("wifi");
-        setCurrentStepIndex(3); // Ready
-      } else {
-        setCurrentStepIndex(mode === "usb" ? 4 : 3); // Ready
+      if (mode === "usb") {
+        setCurrentStepIndex(4); // Ready
+      } else if (adbStatus.activeDevice?.isWireless) {
+        setHasSwitched(true);
+        setSwitchResult({ serial: adbStatus.activeDevice.serial });
       }
     }
-  }, [adbStatus?.state, adbStatus?.activeDevice?.isWireless]);
+  }, [adbStatus?.state, adbStatus?.activeDevice?.isWireless, mode]);
 
   const activeDevice = adbStatus?.activeDevice;
   const isDeviceOnline = adbStatus?.state === "device";
@@ -151,10 +149,14 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
     {
       id: "wifi_pair",
       badge: "STEP 3",
-      title: "Pair & Connect Device",
-      instruction: "Scan the QR code below or enter your phone's wireless pairing IP & Port.",
-      detail: "You can also plug USB once and click 'Switch to Wi-Fi' to auto-pair.",
-      statusText: isDeviceOnline ? "Connected wirelessly!" : "Awaiting wireless pairing...",
+      title: "Device Connection & Switch",
+      instruction: "Connect your phone via USB to configure wireless mode.",
+      detail: "Enables ADB TCP connection over your local network for wireless streaming.",
+      statusText: isDeviceOnline
+        ? activeDevice?.isWireless
+          ? "Wireless link active"
+          : "USB device ready to switch"
+        : "Scanning for connected devices...",
     },
     {
       id: "ready",
@@ -195,40 +197,44 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
     }
   };
 
-  const handleManualConnect = async () => {
-    if (!manualTarget.trim() || !window.electronAPI) return;
-    setIsConnecting(true);
+  const handleSearchPhone = async () => {
+    if (isScanning || !window.electronAPI) return;
+    setIsScanning(true);
     setConnectionFeedback(null);
     try {
-      if (pairingCode.trim()) {
-        const pairRes = await window.electronAPI.pairWireless(manualTarget, pairingCode);
-        if (!pairRes.success) {
-          setConnectionFeedback(`Pairing: ${pairRes.message}`);
-          setIsConnecting(false);
-          return;
+      const status = await window.electronAPI.getAdbStatus();
+      await new Promise((r) => setTimeout(r, 600));
+      if (status?.state === "device" && status.activeDevice) {
+        if (status.activeDevice.isWireless) {
+          setHasSwitched(true);
+          setSwitchResult({ serial: status.activeDevice.serial });
+          setConnectionFeedback(`Wireless device online: ${status.activeDevice.serial}`);
+        } else {
+          setConnectionFeedback(`Device detected: ${status.activeDevice.model || status.activeDevice.serial}`);
         }
+      } else if (status?.state === "unauthorized") {
+        setConnectionFeedback("Device detected: authorize ADB prompt on phone screen.");
+      } else {
+        setConnectionFeedback("No device found. Connect phone with USB and enable USB debugging.");
       }
-      const connRes = await window.electronAPI.connectWireless(manualTarget);
-      setConnectionFeedback(connRes.message);
-      if (connRes.success) {
-        setCurrentStepIndex(steps.length - 1);
-      }
-    } catch (e: any) {
-      setConnectionFeedback(e?.message || "Connection failed");
+    } catch {
+      setConnectionFeedback("Bus scan failed. Verify ADB connection.");
     } finally {
-      setIsConnecting(false);
+      setIsScanning(false);
     }
   };
 
   const handleSwitchFromUsb = async () => {
-    if (!activeDevice || !window.electronAPI) return;
+    if (!activeDevice || !window.electronAPI || isConnecting) return;
     setIsConnecting(true);
-    setConnectionFeedback(null);
+    setConnectionFeedback("Configuring wireless TCP mode…");
     try {
       const res = await window.electronAPI.enableWireless(activeDevice.serial);
       if (res.success && res.ip) {
-        setConnectionFeedback(`Connected to ${res.ip}:5555! You can now unplug the USB cable.`);
-        setCurrentStepIndex(steps.length - 1);
+        const target = `${res.ip}:5555`;
+        setHasSwitched(true);
+        setSwitchResult({ ip: res.ip, serial: target });
+        setConnectionFeedback(`Connected to ${target}`);
       } else {
         setConnectionFeedback(res.error || "Failed to switch to Wi-Fi mode");
       }
@@ -415,208 +421,249 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
       >
         {/* Step-specific illustrations */}
         {currentStep.id === "wifi_pair" ? (
-          <div style={{ width: "100%", display: "flex", flexDirection: "column", gap: "8px" }}>
-            {/* Sub-tab selection: QR Code vs Manual IP vs USB Switch */}
-            <div
-              style={{
-                display: "flex",
-                gap: "4px",
-                backgroundColor: "var(--ink-950)",
-                padding: "2px",
-                borderRadius: "4px",
-                marginBottom: "4px",
-              }}
-            >
-              <button
-                onClick={() => setWifiPairTab("qr")}
-                style={{
-                  flex: 1,
-                  padding: "4px",
-                  borderRadius: "3px",
-                  backgroundColor: wifiPairTab === "qr" ? "var(--ink-800)" : "transparent",
-                  color: wifiPairTab === "qr" ? "var(--accent)" : "var(--text-muted)",
-                  fontSize: "10px",
-                  fontWeight: 600,
-                  border: "none",
-                  cursor: "pointer",
-                }}
-              >
-                Scan QR Code
-              </button>
-              <button
-                onClick={() => setWifiPairTab("manual")}
-                style={{
-                  flex: 1,
-                  padding: "4px",
-                  borderRadius: "3px",
-                  backgroundColor: wifiPairTab === "manual" ? "var(--ink-800)" : "transparent",
-                  color: wifiPairTab === "manual" ? "var(--accent)" : "var(--text-muted)",
-                  fontSize: "10px",
-                  fontWeight: 600,
-                  border: "none",
-                  cursor: "pointer",
-                }}
-              >
-                Manual IP / Port
-              </button>
-              {activeDevice && !activeDevice.isWireless && (
-                <button
-                  onClick={() => setWifiPairTab("switch")}
-                  style={{
-                    flex: 1,
-                    padding: "4px",
-                    borderRadius: "3px",
-                    backgroundColor: wifiPairTab === "switch" ? "var(--ink-800)" : "transparent",
-                    color: wifiPairTab === "switch" ? "var(--accent)" : "var(--text-muted)",
-                    fontSize: "10px",
-                    fontWeight: 600,
-                    border: "none",
-                    cursor: "pointer",
-                  }}
-                >
-                  1-Click Switch
-                </button>
-              )}
-            </div>
-
-            {wifiPairTab === "qr" && <QRCodeCard />}
-
-            {wifiPairTab === "manual" && (
+          <div style={{ width: "100%", maxWidth: "300px", display: "flex", flexDirection: "column", gap: "10px", margin: "0 auto" }}>
+            {/* Case A: Wireless link is established */}
+            {hasSwitched || activeDevice?.isWireless ? (
               <div
                 style={{
                   display: "flex",
                   flexDirection: "column",
-                  gap: "8px",
-                  padding: "12px",
-                  backgroundColor: "rgba(16, 27, 36, 0.75)",
-                  border: "1px solid var(--border)",
+                  gap: "12px",
+                  padding: "16px",
+                  backgroundColor: "rgba(16, 27, 36, 0.85)",
+                  border: "1px solid rgba(138, 230, 196, 0.4)",
                   borderRadius: "var(--radius-md)",
-                  maxWidth: "280px",
-                  margin: "0 auto",
-                  width: "100%",
+                  textAlign: "left",
                 }}
               >
-                <div style={{ textAlign: "left" }}>
-                  <label style={{ fontSize: "10px", color: "var(--text-muted)" }}>
-                    Phone IP:Port
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="192.168.1.50:5555"
-                    value={manualTarget}
-                    onChange={(e) => setManualTarget(e.target.value)}
-                    className="mono-data"
+                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                  <span
                     style={{
-                      width: "100%",
-                      padding: "6px 8px",
-                      borderRadius: "4px",
-                      backgroundColor: "var(--ink-950)",
-                      border: "1px solid var(--border)",
-                      color: "var(--mist-100)",
-                      fontSize: "11px",
-                      marginTop: "2px",
-                      boxSizing: "border-box",
+                      width: "8px",
+                      height: "8px",
+                      borderRadius: "50%",
+                      backgroundColor: "var(--success)",
+                      boxShadow: "0 0 8px var(--success)",
+                      flexShrink: 0,
                     }}
                   />
+                  <span style={{ fontSize: "11px", fontWeight: 600, color: "var(--accent)" }}>
+                    Wi-Fi Connection Active
+                  </span>
                 </div>
-                <div style={{ textAlign: "left" }}>
-                  <label style={{ fontSize: "10px", color: "var(--text-muted)" }}>
-                    Pairing Code (Optional for Android 11+)
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="e.g. 481920"
-                    value={pairingCode}
-                    onChange={(e) => setPairingCode(e.target.value)}
-                    className="mono-data"
-                    style={{
-                      width: "100%",
-                      padding: "6px 8px",
-                      borderRadius: "4px",
-                      backgroundColor: "var(--ink-950)",
-                      border: "1px solid var(--border)",
-                      color: "var(--mist-100)",
-                      fontSize: "11px",
-                      marginTop: "2px",
-                      boxSizing: "border-box",
-                    }}
-                  />
+
+                <div>
+                  <div style={{ fontSize: "13px", fontWeight: 700, color: "var(--mist-100)", marginBottom: "4px" }}>
+                    You may now unplug the USB cable.
+                  </div>
+                  <div style={{ fontSize: "11px", color: "var(--mist-300)", lineHeight: 1.4 }}>
+                    Your device is configured for wireless streaming over the local network.
+                  </div>
                 </div>
-                <button
-                  onClick={handleManualConnect}
-                  disabled={isConnecting || !manualTarget.trim()}
+
+                <div
+                  className="mono-data"
                   style={{
-                    padding: "7px 12px",
+                    fontSize: "11px",
+                    color: "var(--mist-300)",
+                    padding: "7px 10px",
+                    backgroundColor: "var(--ink-950)",
+                    borderRadius: "4px",
+                    border: "1px solid var(--border)",
+                  }}
+                >
+                  {switchResult?.serial || activeDevice?.serial || "Wireless link ready"}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => onComplete?.()}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: "6px",
+                    padding: "10px 14px",
                     borderRadius: "4px",
                     backgroundColor: "var(--accent)",
                     color: "#06141B",
                     fontWeight: 700,
-                    fontSize: "11px",
+                    fontSize: "12px",
                     border: "none",
-                    cursor: isConnecting || !manualTarget.trim() ? "not-allowed" : "pointer",
-                    opacity: isConnecting || !manualTarget.trim() ? 0.6 : 1,
+                    cursor: "pointer",
+                    marginTop: "2px",
                   }}
                 >
-                  {isConnecting ? "Connecting…" : "Connect Wi-Fi"}
+                  <span>Start Wireless Stream</span>
+                  <ChevronRightIcon size={14} />
                 </button>
               </div>
-            )}
-
-            {wifiPairTab === "switch" && (
+            ) : activeDevice && !activeDevice.isWireless ? (
+              /* Case B: USB Device Detected & Ready to Switch */
               <div
                 style={{
                   display: "flex",
                   flexDirection: "column",
-                  gap: "10px",
+                  gap: "12px",
                   padding: "16px",
-                  backgroundColor: "rgba(16, 27, 36, 0.75)",
+                  backgroundColor: "rgba(16, 27, 36, 0.85)",
                   border: "1px solid var(--border)",
                   borderRadius: "var(--radius-md)",
-                  maxWidth: "280px",
-                  margin: "0 auto",
-                  width: "100%",
-                  textAlign: "center",
+                  textAlign: "left",
                 }}
               >
-                <div style={{ fontSize: "11px", color: "var(--mist-200)" }}>
-                  Phone is currently connected via USB:
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span style={{ fontSize: "10.5px", color: "var(--text-muted)" }}>Connected Device</span>
+                  <span
+                    style={{
+                      fontSize: "9.5px",
+                      fontWeight: 600,
+                      padding: "2px 6px",
+                      borderRadius: "3px",
+                      backgroundColor: "rgba(138, 230, 196, 0.1)",
+                      color: "var(--accent)",
+                      border: "1px solid rgba(138, 230, 196, 0.25)",
+                    }}
+                  >
+                    USB Authorized
+                  </span>
                 </div>
-                <div className="mono-data" style={{ fontSize: "12px", color: "var(--accent)" }}>
-                  {activeDevice?.model ?? activeDevice?.serial}
+
+                <div>
+                  <div style={{ fontSize: "14px", fontWeight: 700, color: "var(--mist-100)" }}>
+                    {activeDevice.model || "Android Device"}
+                  </div>
+                  <div className="mono-data" style={{ fontSize: "10px", color: "var(--mist-400)", marginTop: "2px" }}>
+                    Serial: {activeDevice.serial}
+                  </div>
                 </div>
+
                 <button
+                  type="button"
                   onClick={handleSwitchFromUsb}
                   disabled={isConnecting}
                   style={{
-                    padding: "8px 14px",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: "6px",
+                    padding: "10px 14px",
                     borderRadius: "4px",
                     backgroundColor: "var(--accent)",
                     color: "#06141B",
                     fontWeight: 700,
-                    fontSize: "11px",
+                    fontSize: "12px",
                     border: "none",
                     cursor: isConnecting ? "not-allowed" : "pointer",
+                    opacity: isConnecting ? 0.75 : 1,
                   }}
                 >
-                  {isConnecting ? "Enabling Wi-Fi…" : "1-Click Switch to Wi-Fi"}
+                  <WifiIcon size={14} />
+                  <span>{isConnecting ? "Configuring Wi-Fi Mode…" : "Switch to Wi-Fi Mode"}</span>
                 </button>
-                <div style={{ fontSize: "10px", color: "var(--text-muted)" }}>
-                  Once connected, you can unplug the cable and mirror wirelessly.
+
+                <button
+                  type="button"
+                  onClick={handleSearchPhone}
+                  disabled={isScanning || isConnecting}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: "6px",
+                    padding: "6px 10px",
+                    borderRadius: "4px",
+                    backgroundColor: "transparent",
+                    color: "var(--mist-400)",
+                    fontSize: "10.5px",
+                    border: "1px solid var(--border)",
+                    cursor: isScanning || isConnecting ? "not-allowed" : "pointer",
+                  }}
+                >
+                  <RefreshCwIcon size={12} className={isScanning ? "spin" : undefined} />
+                  <span>{isScanning ? "Scanning Devices…" : "Search Phone Again"}</span>
+                </button>
+              </div>
+            ) : (
+              /* Case C: No USB device detected yet */
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "12px",
+                  padding: "18px 16px",
+                  backgroundColor: "rgba(16, 27, 36, 0.85)",
+                  border: "1px solid var(--border)",
+                  borderRadius: "var(--radius-md)",
+                  textAlign: "center",
+                  alignItems: "center",
+                }}
+              >
+                <div
+                  style={{
+                    width: "42px",
+                    height: "42px",
+                    borderRadius: "50%",
+                    backgroundColor: "rgba(255, 255, 255, 0.04)",
+                    border: "1px solid var(--border)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    color: "var(--mist-400)",
+                  }}
+                >
+                  <UsbIcon size={20} />
                 </div>
+
+                <div>
+                  <div style={{ fontSize: "13px", fontWeight: 600, color: "var(--mist-100)" }}>
+                    No USB device detected
+                  </div>
+                  <div style={{ fontSize: "11px", color: "var(--mist-400)", marginTop: "4px", lineHeight: 1.45 }}>
+                    Connect phone with a USB data cable and verify USB debugging is authorized.
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleSearchPhone}
+                  disabled={isScanning}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: "6px",
+                    width: "100%",
+                    padding: "9px 14px",
+                    borderRadius: "4px",
+                    backgroundColor: "var(--ink-800)",
+                    color: "var(--mist-100)",
+                    fontWeight: 600,
+                    fontSize: "11.5px",
+                    border: "1px solid var(--border)",
+                    cursor: isScanning ? "not-allowed" : "pointer",
+                  }}
+                >
+                  <SearchIcon size={13} className={isScanning ? "spin" : undefined} />
+                  <span>{isScanning ? "Searching for Phone…" : "Search Phone"}</span>
+                </button>
               </div>
             )}
 
             {connectionFeedback && (
               <div
                 style={{
-                  fontSize: "10.5px",
-                  color: connectionFeedback.toLowerCase().includes("connected")
+                  fontSize: "10px",
+                  color: connectionFeedback.toLowerCase().includes("connected") || connectionFeedback.toLowerCase().includes("online")
                     ? "var(--success)"
                     : "var(--warning)",
-                  padding: "4px 8px",
+                  padding: "6px 10px",
                   borderRadius: "4px",
-                  backgroundColor: "rgba(0,0,0,0.4)",
-                  marginTop: "4px",
+                  backgroundColor: "rgba(6, 20, 27, 0.9)",
+                  border: "1px solid var(--border)",
+                  textAlign: "center",
+                  width: "100%",
+                  boxSizing: "border-box",
                 }}
               >
                 {connectionFeedback}
@@ -728,38 +775,42 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
           </>
         )}
 
-        {/* Step Title & Instruction */}
-        <h3
-          style={{
-            fontSize: "var(--text-sm)",
-            fontWeight: 700,
-            color: "var(--mist-100)",
-            marginBottom: "4px",
-          }}
-        >
-          {currentStep.title}
-        </h3>
-        <p
-          style={{
-            fontSize: "11.5px",
-            color: "var(--mist-300)",
-            lineHeight: 1.4,
-            maxWidth: "290px",
-            marginBottom: "4px",
-          }}
-        >
-          {currentStep.instruction}
-        </p>
-        <p
-          style={{
-            fontSize: "10.5px",
-            color: "var(--text-muted)",
-            maxWidth: "280px",
-            lineHeight: 1.35,
-          }}
-        >
-          {currentStep.detail}
-        </p>
+        {/* Step Title & Instruction (omitted on wifi_pair where the dedicated card provides full context) */}
+        {currentStep.id !== "wifi_pair" && (
+          <>
+            <h3
+              style={{
+                fontSize: "var(--text-sm)",
+                fontWeight: 700,
+                color: "var(--mist-100)",
+                marginBottom: "4px",
+              }}
+            >
+              {currentStep.title}
+            </h3>
+            <p
+              style={{
+                fontSize: "11.5px",
+                color: "var(--mist-300)",
+                lineHeight: 1.4,
+                maxWidth: "290px",
+                marginBottom: "4px",
+              }}
+            >
+              {currentStep.instruction}
+            </p>
+            <p
+              style={{
+                fontSize: "10.5px",
+                color: "var(--text-muted)",
+                maxWidth: "280px",
+                lineHeight: 1.35,
+              }}
+            >
+              {currentStep.detail}
+            </p>
+          </>
+        )}
       </div>
 
       {/* Hardware Status Indicator Footer */}

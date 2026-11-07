@@ -1,4 +1,4 @@
-import React, { useRef } from "react";
+import React, { useRef, useState } from "react";
 import {
   ChevronLeftIcon,
   DPadIcon,
@@ -13,6 +13,7 @@ import {
   VolumeIcon,
   VolumeOffIcon,
   WifiIcon,
+  WifiOffIcon,
 } from "../icons";
 
 interface FloatingHUDProps {
@@ -33,6 +34,10 @@ interface FloatingHUDProps {
   audioVolume: number;
   onAudioVolumeChange: (volume: number) => void;
   isWireless?: boolean;
+  isStreaming?: boolean;
+  wifiBusy?: boolean;
+  onSwitchToWifi?: () => void;
+  onDisconnectWifi?: () => void;
   showInspector: boolean;
   onToggleInspector: () => void;
   onMinimize: () => void;
@@ -188,11 +193,17 @@ export const FloatingHUD: React.FC<FloatingHUDProps> = ({
   audioVolume,
   onAudioVolumeChange,
   isWireless,
+  isStreaming,
+  wifiBusy,
+  onSwitchToWifi,
+  onDisconnectWifi,
   showInspector,
   onToggleInspector,
   onMinimize,
   onClose,
 }) => {
+  const [wifiHover, setWifiHover] = useState(false);
+
   return (
     <nav
       className="app-no-drag floating-hud"
@@ -381,26 +392,66 @@ export const FloatingHUD: React.FC<FloatingHUDProps> = ({
         </div>
       </div>
 
-      {/* Wireless Active Badge Indicator */}
-      {isWireless && (
-        <div
-          title="Streaming wirelessly over local Wi-Fi"
+      {/* 1-Click Switch to Wi-Fi button (available while streaming via USB) */}
+      {isStreaming && !isWireless && onSwitchToWifi && (
+        <button
+          onClick={onSwitchToWifi}
+          disabled={wifiBusy}
+          title={wifiBusy ? "Switching to Wi-Fi…" : "1-Click: Switch stream to Wi-Fi mode"}
+          aria-label="Switch to Wi-Fi mode"
           style={{
+            width: "36px",
+            height: "36px",
+            borderRadius: "var(--radius-sm)",
+            backgroundColor: wifiBusy ? "rgba(138, 230, 196, 0.2)" : "rgba(138, 230, 196, 0.08)",
+            color: "var(--accent)",
+            border: "1px solid rgba(138, 230, 196, 0.35)",
+            cursor: wifiBusy ? "not-allowed" : "pointer",
             display: "flex",
-            flexDirection: "column",
             alignItems: "center",
             justifyContent: "center",
-            width: "32px",
-            height: "20px",
-            borderRadius: "4px",
-            backgroundColor: "rgba(138, 230, 196, 0.14)",
-            border: "1px solid rgba(138, 230, 196, 0.3)",
-            color: "var(--accent)",
             marginBottom: "2px",
+            transition: "all 0.15s ease",
           }}
         >
-          <WifiIcon size={12} />
-        </div>
+          <WifiIcon size={16} />
+        </button>
+      )}
+
+      {/* Wireless Active Indicator & Disconnect Wi-Fi Button */}
+      {isWireless && (
+        <button
+          onClick={onDisconnectWifi}
+          onMouseEnter={() => setWifiHover(true)}
+          onMouseLeave={() => setWifiHover(false)}
+          disabled={wifiBusy}
+          title={
+            wifiBusy
+              ? "Disconnecting Wi-Fi…"
+              : "Wi-Fi stream connected • Click to disconnect"
+          }
+          aria-label="Disconnect Wi-Fi stream"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            width: "36px",
+            height: "36px",
+            borderRadius: "var(--radius-sm)",
+            backgroundColor: wifiHover
+              ? "rgba(239, 68, 68, 0.2)"
+              : "rgba(138, 230, 196, 0.14)",
+            border: wifiHover
+              ? "1px solid rgba(239, 68, 68, 0.55)"
+              : "1px solid rgba(138, 230, 196, 0.35)",
+            color: wifiHover ? "#ef4444" : "var(--accent)",
+            cursor: wifiBusy ? "not-allowed" : "pointer",
+            marginBottom: "2px",
+            transition: "all 0.18s ease",
+          }}
+        >
+          {wifiHover ? <WifiOffIcon size={16} /> : <WifiIcon size={16} />}
+        </button>
       )}
 
       {/* Inspector / Frame Customizer Drawer */}

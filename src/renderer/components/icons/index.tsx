@@ -404,6 +404,29 @@ export const WifiIcon: React.FC<IconProps> = ({ size = 18, ...props }) => (
   </svg>
 );
 
+export const WifiOffIcon: React.FC<IconProps> = ({ size = 18, ...props }) => (
+  <svg
+    viewBox="0 0 24 24"
+    width={size}
+    height={size}
+    fill="none"
+    stroke="currentColor"
+    strokeWidth={1.5}
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+    {...props}
+  >
+    <line x1="2" y1="2" x2="22" y2="22" />
+    <path d="M8.5 16.5a5 5 0 0 1 7 0" />
+    <path d="M5 12.5a10 10 0 0 1 5.5-2.5" />
+    <path d="M16 11a10 10 0 0 1 3 1.5" />
+    <path d="M1.4 9a16 16 0 0 1 6.6-3" />
+    <path d="M16 6a16 16 0 0 1 6.6 3" />
+    <circle cx="12" cy="20" r="1.25" fill="currentColor" />
+  </svg>
+);
+
 export const QrCodeIcon: React.FC<IconProps> = ({ size = 18, ...props }) => (
   <svg
     viewBox="0 0 24 24"
@@ -461,5 +484,23 @@ export const RefreshCwIcon: React.FC<IconProps> = ({ size = 18, ...props }) => (
     <polyline points="23 4 23 10 17 10" />
     <polyline points="1 20 1 14 7 14" />
     <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+  </svg>
+);
+
+export const SearchIcon: React.FC<IconProps> = ({ size = 18, ...props }) => (
+  <svg
+    viewBox="0 0 24 24"
+    width={size}
+    height={size}
+    fill="none"
+    stroke="currentColor"
+    strokeWidth={1.5}
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+    {...props}
+  >
+    <circle cx="11" cy="11" r="7" />
+    <line x1="21" y1="21" x2="16.65" y2="16.65" />
   </svg>
 );

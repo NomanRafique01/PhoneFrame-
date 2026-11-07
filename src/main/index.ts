@@ -291,8 +291,8 @@ ipcMain.handle("adb:disconnectWireless", async (_event, target: string) => {
   return adbTracker.disconnectWireless(target);
 });
 
-ipcMain.handle("adb:pairWireless", async (_event, target: string, code: string) => {
-  return adbTracker.pairWireless(target, code);
+ipcMain.handle("adb:pairWireless", async (_event, target: string, code: string, connectPort?: string) => {
+  return adbTracker.pairWireless(target, code, connectPort);
 });
 
 // Mirroring IPC handlers

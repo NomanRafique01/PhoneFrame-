@@ -67,7 +67,7 @@ export interface FloatingPhoneAPI {
   enableWireless: (serial: string) => Promise<{ success: boolean; ip?: string; error?: string }>;
   connectWireless: (target: string) => Promise<{ success: boolean; message: string }>;
   disconnectWireless: (target: string) => Promise<{ success: boolean; message: string }>;
-  pairWireless: (target: string, code: string) => Promise<{ success: boolean; message: string }>;
+  pairWireless: (target: string, code: string, connectPort?: string) => Promise<{ success: boolean; message: string }>;
 
   // Real Mirroring
   startMirror: (serial: string) => Promise<boolean>;
@@ -115,7 +115,7 @@ const api: FloatingPhoneAPI = {
   enableWireless: (serial: string) => ipcRenderer.invoke("adb:enableWireless", serial),
   connectWireless: (target: string) => ipcRenderer.invoke("adb:connectWireless", target),
   disconnectWireless: (target: string) => ipcRenderer.invoke("adb:disconnectWireless", target),
-  pairWireless: (target: string, code: string) => ipcRenderer.invoke("adb:pairWireless", target, code),
+  pairWireless: (target: string, code: string, connectPort?: string) => ipcRenderer.invoke("adb:pairWireless", target, code, connectPort),
 
   startMirror: (serial: string) => ipcRenderer.invoke("mirror:start", serial),
   stopMirror: () => ipcRenderer.invoke("mirror:stop"),

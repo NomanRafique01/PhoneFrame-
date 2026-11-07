@@ -119,6 +119,8 @@ export const App: React.FC = () => {
     lastY: number;
   } | null>(null);
   const startInFlightRef = useRef(false);
+  const isSwitchingToWifiRef = useRef(false);
+  const pendingWifiSerialRef = useRef<string | null>(null);
   // Read inside listeners bound once, so Escape and stream teardown always see
   // the live fullscreen value instead of the mount-time snapshot.
   const isFullscreenRef = useRef(false);
@@ -316,11 +318,46 @@ export const App: React.FC = () => {
           void window.electronAPI?.setFullscreen?.(false);
         }
 
+        // If a manual Wi-Fi switch is actively orchestrating the restart, don't interrupt it!
+        if (isSwitchingToWifiRef.current) {
+          return;
+        }
+
         // Any stream termination — manual stop, unplug, scrcpy crash — returns
         // to the connection screen. ADB detection keeps running underneath.
         if (wasActive && isEnded) {
+          // Check if there is an authorized wireless device available to auto-reconnect
+          // (e.g. when USB cable is unplugged while streaming)
+          const currentStatus = lastAdbStatusRef.current;
+          const wirelessDev = currentStatus.devices.find(
+            (d) =>
+              d.state === "device" &&
+              (d.isWireless || d.serial.includes(":") || /^\d+\.\d+\.\d+\.\d+/.test(d.serial))
+          );
+
+          if (wirelessDev) {
+            console.log(
+              "[PhoneFrame] Stream stopped, but wireless device is active:",
+              wirelessDev.serial,
+              "- auto-reconnecting stream..."
+            );
+            showSessionNotice("USB disconnected. Reconnecting via Wi-Fi…");
+            setTimeout(async () => {
+              if (!window.electronAPI) return;
+              setIsWizardActive(false);
+              try {
+                await window.electronAPI.startMirror(wirelessDev.serial);
+              } catch (e) {
+                console.error("[PhoneFrame] Auto-reconnect to Wi-Fi failed:", e);
+                setIsWizardActive(true);
+                showSessionNotice("Could not connect to phone over Wi-Fi.");
+              }
+            }, 1000);
+            return;
+          }
+
           setIsWizardActive(true);
-          const stillConnected = lastAdbStatusRef.current.state === "device";
+          const stillConnected = currentStatus.state === "device";
           showSessionNotice(
             payload.state === "error" || !stillConnected
               ? "Phone disconnected. Waiting for a new connection…"
@@ -541,35 +578,88 @@ export const App: React.FC = () => {
 
   const handleSwitchToWifi = async () => {
     const serial = adbStatus.activeDevice?.serial;
-    if (!serial || !window.electronAPI) return;
+    if (!serial || !window.electronAPI) {
+      console.warn("[PhoneFrame] Switch to Wi-Fi clicked, but no active device or electronAPI.");
+      return;
+    }
+    if (wifiBusy) return;
+
     setWifiBusy(true);
-    setWifiMsg(null);
+    isSwitchingToWifiRef.current = true;
+    setWifiMsg("Querying phone IP and enabling Wi-Fi mode…");
+    console.log("[PhoneFrame] Starting switch to Wi-Fi for serial:", serial);
+
     try {
       const res = await window.electronAPI.enableWireless(serial);
+      console.log("[PhoneFrame] enableWireless result:", res);
+
       if (res.success && res.ip) {
-        setWifiMsg(`Connected to ${res.ip}:5555! You can unplug USB.`);
+        const wifiSerial = `${res.ip}:5555`;
+        pendingWifiSerialRef.current = wifiSerial;
+        setWifiMsg(`Connected to ${wifiSerial}! Switching stream…`);
+
+        // If stream is currently active, stop it cleanly before starting wireless stream
+        if (mirrorState === "running" || mirrorState === "starting") {
+          try {
+            await window.electronAPI.stopMirror();
+          } catch (stopErr) {
+            console.warn("[PhoneFrame] stopMirror error during switch:", stopErr);
+          }
+          // Allow adbd socket and scrcpy server on device a moment to settle
+          await new Promise((r) => setTimeout(r, 600));
+        }
+
+        // Start stream directly on the wireless address
+        setIsWizardActive(false);
+        try {
+          console.log("[PhoneFrame] Starting wireless stream on:", wifiSerial);
+          await window.electronAPI.startMirror(wifiSerial);
+          setWifiMsg("✓ Streaming over Wi-Fi! You can now unplug the USB cable.");
+        } catch (startErr: any) {
+          console.error("[PhoneFrame] Failed to start wireless mirror:", startErr);
+          setWifiMsg(`Connected to Wi-Fi (${wifiSerial}), but failed to start stream: ${startErr?.message || "Unknown error"}`);
+        }
       } else {
-        setWifiMsg(res.error || "Failed to switch to Wi-Fi");
+        setWifiMsg(`✕ ${res.error || "Failed to switch to Wi-Fi"}`);
       }
     } catch (e: any) {
-      setWifiMsg(e?.message || "Error switching to Wi-Fi");
+      console.error("[PhoneFrame] Error in handleSwitchToWifi:", e);
+      setWifiMsg(`✕ ${e?.message || "Error switching to Wi-Fi"}`);
     } finally {
       setWifiBusy(false);
+      // Keep switching flag active briefly so settling state-changes don't show disconnect notice
+      setTimeout(() => {
+        isSwitchingToWifiRef.current = false;
+        pendingWifiSerialRef.current = null;
+      }, 3000);
+      // Auto-clear success message after 7 seconds
+      setTimeout(() => {
+        setWifiMsg((prev) => (prev?.startsWith("✓") ? null : prev));
+      }, 7000);
     }
   };
 
   const handleDisconnectWifi = async () => {
+    if (!window.electronAPI) return;
     const serial = adbStatus.activeDevice?.serial;
-    if (!serial || !window.electronAPI) return;
     setWifiBusy(true);
-    setWifiMsg(null);
+    setWifiMsg("Disconnecting Wi-Fi…");
     try {
-      await window.electronAPI.disconnectWireless(serial);
-      setWifiMsg("Disconnected Wi-Fi");
+      if (mirrorState === "running" || mirrorState === "starting") {
+        await window.electronAPI.stopMirror();
+      }
+      if (serial) {
+        await window.electronAPI.disconnectWireless(serial);
+      }
+      setIsWizardActive(true);
+      setWifiMsg("Wi-Fi disconnected");
+      showSessionNotice("Wi-Fi stream disconnected.");
     } catch (e: any) {
+      console.error("[PhoneFrame] Error disconnecting Wi-Fi:", e);
       setWifiMsg(e?.message || "Error disconnecting Wi-Fi");
     } finally {
       setWifiBusy(false);
+      setTimeout(() => setWifiMsg(null), 4000);
     }
   };
 
@@ -866,6 +956,10 @@ export const App: React.FC = () => {
               audioVolume={audioVolume}
               onAudioVolumeChange={setAudioVolume}
               isWireless={Boolean(activeDevice?.isWireless)}
+              isStreaming={isStreaming}
+              wifiBusy={wifiBusy}
+              onSwitchToWifi={handleSwitchToWifi}
+              onDisconnectWifi={handleDisconnectWifi}
               showInspector={showInspector}
               onToggleInspector={() => setShowInspector(!showInspector)}
               onMinimize={handleMinimize}
@@ -989,16 +1083,93 @@ export const App: React.FC = () => {
               ) : isStreaming || isStarting ? (
                 /* Mounted as soon as startup begins so the first codec config
                    and keyframe are not missed while connecting */
-                <VideoCanvas
-                  width={screenWidth}
-                  height={screenHeight}
-                  isStreaming={isStreaming}
-                  dragMode={dragMode && !isFullscreen}
-                  isDragging={isDragging && !isFullscreen}
-                  showDpad={dpadEnabled}
-                  onInteractionChange={setIsScreenInteracting}
-                  onStreamSizeChange={scheduleStreamOrientation}
-                />
+                <>
+                  <VideoCanvas
+                    width={screenWidth}
+                    height={screenHeight}
+                    isStreaming={isStreaming}
+                    dragMode={dragMode && !isFullscreen}
+                    isDragging={isDragging && !isFullscreen}
+                    showDpad={dpadEnabled}
+                    onInteractionChange={setIsScreenInteracting}
+                    onStreamSizeChange={scheduleStreamOrientation}
+                  />
+                  {/* Wi-Fi switch pill — only while streaming over USB in non-fullscreen */}
+                  {isStreaming && !isFullscreen && activeDevice && !activeDevice.isWireless && (
+                    <button
+                      type="button"
+                      className="app-no-drag"
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onPointerUp={(e) => e.stopPropagation()}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (!wifiBusy) handleSwitchToWifi();
+                      }}
+                      title="1-Click: Switch this USB stream to Wi-Fi mode"
+                      aria-label="Switch to Wi-Fi mode"
+                      style={{
+                        position: "absolute",
+                        bottom: "12px",
+                        left: "50%",
+                        transform: "translateX(-50%)",
+                        zIndex: 60,
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "6px",
+                        padding: "6px 14px",
+                        borderRadius: "20px",
+                        backgroundColor: "rgba(6, 20, 27, 0.94)",
+                        border: "1px solid rgba(138, 230, 196, 0.55)",
+                        boxShadow: "0 4px 14px rgba(0, 0, 0, 0.6), 0 0 12px rgba(138, 230, 196, 0.25)",
+                        backdropFilter: "blur(8px)",
+                        fontSize: "11px",
+                        color: "var(--accent)",
+                        fontWeight: 600,
+                        whiteSpace: "nowrap",
+                        cursor: wifiBusy ? "not-allowed" : "pointer",
+                        opacity: wifiBusy ? 0.75 : 1,
+                        pointerEvents: "auto",
+                        userSelect: "none",
+                        transition: "all 0.15s ease",
+                      }}
+                    >
+                      <WifiIcon size={12} />
+                      <span>{wifiBusy ? "Switching to Wi-Fi…" : "⚡ Switch to Wi-Fi"}</span>
+                    </button>
+                  )}
+                  {/* Feedback message during or after switching */}
+                  {wifiMsg && (
+                    <div
+                      style={{
+                        position: "absolute",
+                        bottom: isStreaming && activeDevice && !activeDevice.isWireless ? "46px" : "16px",
+                        left: "50%",
+                        transform: "translateX(-50%)",
+                        zIndex: 60,
+                        padding: "4px 12px",
+                        borderRadius: "14px",
+                        backgroundColor: "rgba(6, 20, 27, 0.95)",
+                        border: "1px solid var(--border)",
+                        boxShadow: "0 4px 14px rgba(0, 0, 0, 0.5)",
+                        fontSize: "10px",
+                        fontWeight: 500,
+                        color:
+                          wifiMsg.toLowerCase().includes("fail") ||
+                          wifiMsg.toLowerCase().includes("error") ||
+                          wifiMsg.startsWith("✕")
+                            ? "var(--warning)"
+                            : "var(--success)",
+                        whiteSpace: "nowrap",
+                        maxWidth: "92%",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        pointerEvents: "none",
+                      }}
+                    >
+                      {wifiMsg}
+                    </div>
+                  )}
+                </>
               ) : (
                 /* Standby / Ready View */
                 <div

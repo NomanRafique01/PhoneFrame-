@@ -1,63 +1,11 @@
-import React, { useState, useEffect, useMemo } from "react";
-import QRCode from "qrcode";
-import { QrCodeIcon, CopyIcon, CheckIcon, RefreshCwIcon } from "../icons";
+import React from "react";
+import { UsbIcon, ToggleRightIcon } from "../icons";
 
 interface QRCodeCardProps {
-  onPairRequested?: (ipPort: string, code: string) => void;
+  onSwitchTab?: (tab: "switch" | "pair" | "ip") => void;
 }
 
-export const QRCodeCard: React.FC<QRCodeCardProps> = () => {
-  const [pairingCode, setPairingCode] = useState(() =>
-    String(Math.floor(100000 + Math.random() * 900000))
-  );
-  const [serviceName] = useState(() => `PhoneFrame_${Math.random().toString(36).substring(2, 6).toUpperCase()}`);
-  const [svgMarkup, setSvgMarkup] = useState<string>("");
-  const [copied, setCopied] = useState(false);
-
-  // Android 11+ Wireless Debugging QR code specification:
-  // Schema: WIFI:T:ADB;S:<service_name>;P:<pairing_code>;;
-  const qrPayload = useMemo(() => {
-    return `WIFI:T:ADB;S:${serviceName};P:${pairingCode};;`;
-  }, [serviceName, pairingCode]);
-
-  useEffect(() => {
-    let active = true;
-    QRCode.toString(
-      qrPayload,
-      {
-        type: "svg",
-        margin: 1,
-        color: {
-          dark: "#06141B",
-          light: "#CCD0CF",
-        },
-      },
-      (err, svg) => {
-        if (!err && svg && active) {
-          setSvgMarkup(svg);
-        }
-      }
-    );
-    return () => {
-      active = false;
-    };
-  }, [qrPayload]);
-
-  const handleCopyCode = async () => {
-    try {
-      await navigator.clipboard.writeText(pairingCode);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch (e) {
-      console.warn("Failed to copy pairing code", e);
-    }
-  };
-
-  const handleRefresh = () => {
-    setPairingCode(String(Math.floor(100000 + Math.random() * 900000)));
-    setCopied(false);
-  };
-
+export const QRCodeCard: React.FC<QRCodeCardProps> = ({ onSwitchTab }) => {
   return (
     <div
       style={{
@@ -65,131 +13,85 @@ export const QRCodeCard: React.FC<QRCodeCardProps> = () => {
         flexDirection: "column",
         alignItems: "center",
         gap: "10px",
-        padding: "12px",
+        padding: "14px",
         backgroundColor: "rgba(16, 27, 36, 0.75)",
         border: "1px solid var(--border)",
         borderRadius: "var(--radius-md)",
         width: "100%",
-        maxWidth: "280px",
+        maxWidth: "300px",
         margin: "0 auto",
+        textAlign: "center",
       }}
     >
       <div
         style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
+          padding: "10px",
+          borderRadius: "6px",
+          backgroundColor: "rgba(255, 120, 50, 0.12)",
+          border: "1px solid rgba(255, 120, 50, 0.3)",
+          color: "#FFB088",
+          fontSize: "10px",
+          lineHeight: "1.4",
+          textAlign: "left",
           width: "100%",
+          boxSizing: "border-box",
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-          <QrCodeIcon size={14} style={{ color: "var(--accent)" }} />
-          <span
-            style={{
-              fontSize: "11px",
-              fontWeight: 700,
-              letterSpacing: "0.06em",
-              color: "var(--mist-100)",
-              textTransform: "uppercase",
-            }}
-          >
-            Pairing QR Code
-          </span>
+        <div style={{ fontWeight: 800, color: "#FFA5A5", marginBottom: "4px" }}>
+          ⚠️ Why phone cameras disconnect Wi-Fi:
         </div>
+        <div style={{ color: "var(--mist-200)", fontSize: "9.5px" }}>
+          Standard phone cameras mistake debugging QR codes for Wi-Fi hotspot credentials and disconnect your phone. In addition, Android's QR pairing protocol requires Android Studio's private server.
+        </div>
+      </div>
+
+      <div style={{ fontSize: "11px", color: "var(--mist-100)", fontWeight: 600 }}>
+        Recommended Wireless Connection Methods:
+      </div>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: "6px", width: "100%" }}>
         <button
-          onClick={handleRefresh}
-          title="Generate new pairing code"
+          onClick={() => onSwitchTab?.("switch")}
           style={{
             display: "flex",
             alignItems: "center",
-            gap: "4px",
-            padding: "2px 6px",
-            borderRadius: "var(--radius-sm)",
-            backgroundColor: "transparent",
-            border: "1px solid var(--border)",
-            color: "var(--text-muted)",
-            fontSize: "10px",
+            justifyContent: "center",
+            gap: "6px",
+            padding: "8px 10px",
+            borderRadius: "4px",
+            backgroundColor: "var(--accent)",
+            color: "#06141B",
+            fontWeight: 700,
+            fontSize: "10.5px",
+            border: "none",
             cursor: "pointer",
           }}
         >
-          <RefreshCwIcon size={10} />
-          <span>New</span>
+          <UsbIcon size={13} />
+          <span>⚡ 1-Click Switch from USB (Fastest)</span>
         </button>
-      </div>
 
-      {/* SVG QR Code Display */}
-      <div
-        style={{
-          width: "148px",
-          height: "148px",
-          padding: "6px",
-          backgroundColor: "#CCD0CF",
-          borderRadius: "8px",
-          boxShadow: "0 4px 16px rgba(0, 0, 0, 0.4)",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-        }}
-        dangerouslySetInnerHTML={{ __html: svgMarkup }}
-      />
-
-      <div style={{ textAlign: "center" }}>
-        <div style={{ fontSize: "10px", color: "var(--text-muted)", marginBottom: "4px" }}>
-          Pairing Code (if prompted)
-        </div>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "6px" }}>
-          <span
-            className="mono-data"
-            style={{
-              fontSize: "16px",
-              fontWeight: 800,
-              letterSpacing: "0.18em",
-              color: "var(--accent)",
-              backgroundColor: "rgba(0, 0, 0, 0.4)",
-              padding: "2px 8px",
-              borderRadius: "4px",
-              border: "1px solid rgba(138, 230, 196, 0.2)",
-            }}
-          >
-            {pairingCode}
-          </span>
-          <button
-            onClick={handleCopyCode}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "4px",
-              padding: "4px 8px",
-              borderRadius: "4px",
-              backgroundColor: copied ? "var(--success)" : "var(--ink-800)",
-              border: "1px solid var(--border)",
-              color: copied ? "#06141B" : "var(--mist-200)",
-              fontSize: "10px",
-              fontWeight: 600,
-              cursor: "pointer",
-              transition: "all 0.15s ease",
-            }}
-          >
-            {copied ? <CheckIcon size={12} /> : <CopyIcon size={12} />}
-            <span>{copied ? "Copied!" : "Copy"}</span>
-          </button>
-        </div>
-      </div>
-
-      <div
-        style={{
-          fontSize: "9.5px",
-          color: "var(--text-muted)",
-          textAlign: "center",
-          lineHeight: "1.35",
-          marginTop: "2px",
-        }}
-      >
-        On phone: <strong style={{ color: "var(--mist-200)" }}>Developer options</strong> →{" "}
-        <strong style={{ color: "var(--mist-200)" }}>Wireless debugging</strong> →{" "}
-        <em>Pair device with QR code</em>
+        <button
+          onClick={() => onSwitchTab?.("pair")}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: "6px",
+            padding: "8px 10px",
+            borderRadius: "4px",
+            backgroundColor: "var(--ink-800)",
+            color: "var(--mist-100)",
+            border: "1px solid var(--border)",
+            fontWeight: 600,
+            fontSize: "10.5px",
+            cursor: "pointer",
+          }}
+        >
+          <ToggleRightIcon size={13} />
+          <span>🔢 Pair with 6-Digit Code (No Cable)</span>
+        </button>
       </div>
     </div>
   );
 };
-
