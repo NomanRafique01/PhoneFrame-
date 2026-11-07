@@ -14,9 +14,15 @@ import {
   VolumeOffIcon,
   WifiIcon,
   WifiOffIcon,
+  AddScreenIcon,
 } from "../icons";
 
 interface FloatingHUDProps {
+  onAddScreen?: () => void;
+  canAddScreen?: boolean;
+  totalScreens?: number;
+  onCloseScreen?: () => void;
+  canCloseScreen?: boolean;
   dragMode: boolean;
   onToggleDragMode: () => void;
   dpadEnabled: boolean;
@@ -201,6 +207,11 @@ export const FloatingHUD: React.FC<FloatingHUDProps> = ({
   onToggleInspector,
   onMinimize,
   onClose,
+  onAddScreen,
+  canAddScreen = true,
+  totalScreens = 1,
+  onCloseScreen,
+  canCloseScreen = false,
 }) => {
   const [wifiHover, setWifiHover] = useState(false);
 
@@ -451,6 +462,32 @@ export const FloatingHUD: React.FC<FloatingHUDProps> = ({
           }}
         >
           {wifiHover ? <WifiOffIcon size={16} /> : <WifiIcon size={16} />}
+        </button>
+      )}
+
+      {/* Add Screen (Multi-display up to 4 independent screens) */}
+      {onAddScreen && (
+        <button
+          onClick={onAddScreen}
+          disabled={!canAddScreen}
+          title={
+            canAddScreen
+              ? `Add new phone screen (${totalScreens}/4 active)`
+              : "Maximum 4 screens reached"
+          }
+          aria-label="Add new phone screen"
+          style={{
+            width: "36px",
+            height: "36px",
+            borderRadius: "var(--radius-sm)",
+            backgroundColor: "transparent",
+            color: canAddScreen ? "var(--accent)" : "var(--ink-600)",
+            border: "1px solid transparent",
+            opacity: canAddScreen ? 1 : 0.45,
+            cursor: canAddScreen ? "pointer" : "not-allowed",
+          }}
+        >
+          <AddScreenIcon size={16} />
         </button>
       )}
 

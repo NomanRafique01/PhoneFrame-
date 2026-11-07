@@ -24,6 +24,7 @@ export type MirrorState = "stopped" | "starting" | "running" | "error";
 export interface MirrorStatePayload {
   state: MirrorState;
   error?: string;
+  screenId?: string;
 }
 
 export type ScreenControlInput =
@@ -69,20 +70,20 @@ export interface FloatingPhoneAPI {
   disconnectWireless: (target: string) => Promise<{ success: boolean; message: string }>;
   pairWireless: (target: string, code: string, connectPort?: string) => Promise<{ success: boolean; message: string }>;
 
-  // Real Mirroring
-  startMirror: (serial: string) => Promise<boolean>;
-  stopMirror: () => Promise<boolean>;
-  getMirrorState: () => Promise<MirrorState>;
-  onMirrorStateChange: (callback: (payload: MirrorStatePayload) => void) => () => void;
-  onVideoChunk: (callback: (chunk: Uint8Array) => void) => () => void;
-  onVideoInit?: (callback: (meta: { codec: string; width: number; height: number }) => void) => () => void;
-  onVideoCodec?: (callback: (codec: string) => void) => () => void;
-  onAudioInit?: (callback: (meta: { codec: string }) => void) => () => void;
-  onAudioChunk?: (callback: (chunk: Uint8Array) => void) => () => void;
-  setAudioSettings?: (settings: { muted: boolean; level: number }) => void;
+  // Real Mirroring (multi-session enabled, default screenId = "primary")
+  startMirror: (serial: string, screenId?: string) => Promise<boolean>;
+  stopMirror: (screenId?: string) => Promise<boolean>;
+  getMirrorState: (screenId?: string) => Promise<MirrorState>;
+  onMirrorStateChange: (callback: (payload: MirrorStatePayload) => void, screenId?: string) => () => void;
+  onVideoChunk: (callback: (chunk: Uint8Array) => void, screenId?: string) => () => void;
+  onVideoInit?: (callback: (meta: { codec: string; width: number; height: number }) => void, screenId?: string) => () => void;
+  onVideoCodec?: (callback: (codec: string) => void, screenId?: string) => () => void;
+  onAudioInit?: (callback: (meta: { codec: string }) => void, screenId?: string) => () => void;
+  onAudioChunk?: (callback: (chunk: Uint8Array) => void, screenId?: string) => () => void;
+  setAudioSettings?: (settings: { muted: boolean; level: number; screenId?: string }) => void;
 
   // Screen input (pointer, scroll, keyboard)
-  sendControl: (input: ScreenControlInput) => void;
+  sendControl: (input: ScreenControlInput, screenId?: string) => void;
 }
 
 const api: FloatingPhoneAPI = {
@@ -117,57 +118,66 @@ const api: FloatingPhoneAPI = {
   disconnectWireless: (target: string) => ipcRenderer.invoke("adb:disconnectWireless", target),
   pairWireless: (target: string, code: string, connectPort?: string) => ipcRenderer.invoke("adb:pairWireless", target, code, connectPort),
 
-  startMirror: (serial: string) => ipcRenderer.invoke("mirror:start", serial),
-  stopMirror: () => ipcRenderer.invoke("mirror:stop"),
-  getMirrorState: () => ipcRenderer.invoke("mirror:getState"),
-  onMirrorStateChange: (callback: (payload: MirrorStatePayload) => void) => {
+  startMirror: (serial: string, screenId: string = "primary") =>
+    ipcRenderer.invoke("mirror:start", { serial, screenId }),
+  stopMirror: (screenId: string = "primary") =>
+    ipcRenderer.invoke("mirror:stop", screenId),
+  getMirrorState: (screenId: string = "primary") =>
+    ipcRenderer.invoke("mirror:getState", screenId),
+  onMirrorStateChange: (callback: (payload: MirrorStatePayload) => void, screenId?: string) => {
+    const channel = screenId ? `mirror:state-changed:${screenId}` : "mirror:state-changed";
     const handler = (_event: Electron.IpcRendererEvent, payload: MirrorStatePayload) => callback(payload);
-    ipcRenderer.on("mirror:state-changed", handler);
+    ipcRenderer.on(channel, handler);
     return () => {
-      ipcRenderer.removeListener("mirror:state-changed", handler);
+      ipcRenderer.removeListener(channel, handler);
     };
   },
-  onVideoChunk: (callback: (chunk: Uint8Array) => void) => {
+  onVideoChunk: (callback: (chunk: Uint8Array) => void, screenId?: string) => {
+    const channel = screenId ? `video:chunk:${screenId}` : "video:chunk";
     const handler = (_event: Electron.IpcRendererEvent, chunk: Uint8Array) => callback(chunk);
-    ipcRenderer.on("video:chunk", handler);
+    ipcRenderer.on(channel, handler);
     return () => {
-      ipcRenderer.removeListener("video:chunk", handler);
+      ipcRenderer.removeListener(channel, handler);
     };
   },
-  onVideoInit: (callback: (meta: { codec: string; width: number; height: number }) => void) => {
+  onVideoInit: (callback: (meta: { codec: string; width: number; height: number }) => void, screenId?: string) => {
+    const channel = screenId ? `video:init:${screenId}` : "video:init";
     const handler = (_event: Electron.IpcRendererEvent, meta: { codec: string; width: number; height: number }) => callback(meta);
-    ipcRenderer.on("video:init", handler);
+    ipcRenderer.on(channel, handler);
     return () => {
-      ipcRenderer.removeListener("video:init", handler);
+      ipcRenderer.removeListener(channel, handler);
     };
   },
-  onVideoCodec: (callback: (codec: string) => void) => {
+  onVideoCodec: (callback: (codec: string) => void, screenId?: string) => {
+    const channel = screenId ? `video:codec:${screenId}` : "video:codec";
     const handler = (_event: Electron.IpcRendererEvent, codec: string) => callback(codec);
-    ipcRenderer.on("video:codec", handler);
+    ipcRenderer.on(channel, handler);
     return () => {
-      ipcRenderer.removeListener("video:codec", handler);
+      ipcRenderer.removeListener(channel, handler);
     };
   },
-  onAudioInit: (callback: (meta: { codec: string }) => void) => {
+  onAudioInit: (callback: (meta: { codec: string }) => void, screenId?: string) => {
+    const channel = screenId ? `audio:init:${screenId}` : "audio:init";
     const handler = (_event: Electron.IpcRendererEvent, meta: { codec: string }) => callback(meta);
-    ipcRenderer.on("audio:init", handler);
+    ipcRenderer.on(channel, handler);
     return () => {
-      ipcRenderer.removeListener("audio:init", handler);
+      ipcRenderer.removeListener(channel, handler);
     };
   },
-  onAudioChunk: (callback: (chunk: Uint8Array) => void) => {
+  onAudioChunk: (callback: (chunk: Uint8Array) => void, screenId?: string) => {
+    const channel = screenId ? `audio:chunk:${screenId}` : "audio:chunk";
     const handler = (_event: Electron.IpcRendererEvent, chunk: Uint8Array) => callback(chunk);
-    ipcRenderer.on("audio:chunk", handler);
+    ipcRenderer.on(channel, handler);
     return () => {
-      ipcRenderer.removeListener("audio:chunk", handler);
+      ipcRenderer.removeListener(channel, handler);
     };
   },
-  setAudioSettings: (settings: { muted: boolean; level: number }) => {
+  setAudioSettings: (settings: { muted: boolean; level: number; screenId?: string }) => {
     ipcRenderer.send("audio:settings", settings);
   },
 
-  sendControl: (input: ScreenControlInput) => {
-    ipcRenderer.send("mirror:control", input);
+  sendControl: (input: ScreenControlInput, screenId: string = "primary") => {
+    ipcRenderer.send("mirror:control", input, screenId);
   },
 };
 

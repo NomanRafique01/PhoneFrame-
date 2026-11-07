@@ -15,7 +15,71 @@ import { assetPath } from "./assets";
 
 let mainWindow: BrowserWindow | null = null;
 const adbTracker = new AdbTracker();
-let mirrorManager: ScrcpyServerManager | null = null;
+// Multi-session registry: supports up to 4 concurrent independent screens without conflict
+const mirrorSessions = new Map<string, ScrcpyServerManager>();
+let cachedResolvedAdb = "adb";
+
+function getOrCreateMirrorSession(screenId: string = "primary"): ScrcpyServerManager {
+  let session = mirrorSessions.get(screenId);
+  if (!session) {
+    session = new ScrcpyServerManager(cachedResolvedAdb);
+    mirrorSessions.set(screenId, session);
+
+    // Wire up screen-scoped and legacy fallback events to mainWindow
+    session.on("video-init", (meta) => {
+      if (mainWindow?.webContents && !mainWindow.webContents.isDestroyed()) {
+        mainWindow.webContents.send(`video:init:${screenId}`, meta);
+        if (screenId === "primary") {
+          mainWindow.webContents.send("video:init", meta);
+        }
+      }
+    });
+
+    session.on("video-codec", (codec: string) => {
+      if (mainWindow?.webContents && !mainWindow.webContents.isDestroyed()) {
+        mainWindow.webContents.send(`video:codec:${screenId}`, codec);
+        if (screenId === "primary") {
+          mainWindow.webContents.send("video:codec", codec);
+        }
+      }
+    });
+
+    session.on("video-chunk", (chunk: Buffer) => {
+      if (mainWindow?.webContents && !mainWindow.webContents.isDestroyed()) {
+        mainWindow.webContents.send(`video:chunk:${screenId}`, chunk);
+        if (screenId === "primary") {
+          mainWindow.webContents.send("video:chunk", chunk);
+        }
+      }
+    });
+
+    session.on("audio-init", (meta) => {
+      if (mainWindow?.webContents && !mainWindow.webContents.isDestroyed()) {
+        mainWindow.webContents.send(`audio:init:${screenId}`, meta);
+        if (screenId === "primary") {
+          mainWindow.webContents.send("audio:init", meta);
+        }
+      }
+    });
+
+    session.on("audio-chunk", (chunk: Buffer) => {
+      if (mainWindow?.webContents && !mainWindow.webContents.isDestroyed()) {
+        mainWindow.webContents.send(`audio:chunk:${screenId}`, chunk);
+        if (screenId === "primary") {
+          mainWindow.webContents.send("audio:chunk", chunk);
+        }
+      }
+    });
+
+    session.on("state-changed", (state: string, err?: string) => {
+      if (mainWindow?.webContents && !mainWindow.webContents.isDestroyed()) {
+        mainWindow.webContents.send(`mirror:state-changed:${screenId}`, { screenId, state, error: err });
+        mainWindow.webContents.send("mirror:state-changed", { screenId, state, error: err });
+      }
+    });
+  }
+  return session;
+}
 
 // Windows picks the window/taskbar/shortcut icon from this path.
 const APP_ICON_PATH = assetPath("phoneframe-icon.ico");
@@ -142,8 +206,8 @@ app.whenReady().then(async () => {
   // pinned shortcut) under PhoneFrame instead of the generic Electron entry.
   app.setAppUserModelId("com.phoneframe.app");
 
-  const resolvedAdb = await adbTracker.resolveAdbPath();
-  mirrorManager = new ScrcpyServerManager(resolvedAdb);
+  cachedResolvedAdb = await adbTracker.resolveAdbPath();
+  getOrCreateMirrorSession("primary");
 
   createWindow();
   await adbTracker.start();
@@ -154,59 +218,21 @@ app.whenReady().then(async () => {
       mainWindow.webContents.send("adb:status-changed", status);
     }
 
-    // If the device behind the active stream disappears (unplug, ADB loss,
-    // authorization revoked), tear the session down instead of waiting for
-    // a socket error. ADB tracking itself keeps running.
-    if (!mirrorManager) return;
-    const mirrorState = mirrorManager.getState();
-    if (mirrorState !== "starting" && mirrorState !== "running") return;
+    // For every active mirror session, if its device goes offline, tear it down
+    for (const [screenId, session] of mirrorSessions.entries()) {
+      const mirrorState = session.getState();
+      if (mirrorState !== "starting" && mirrorState !== "running") continue;
 
-    const serial = mirrorManager.getActiveSerial();
-    if (!serial) return;
+      const serial = session.getActiveSerial();
+      if (!serial) continue;
 
-    const stillOnline = status.devices.some(
-      (device) => device.serial === serial && device.state === "device"
-    );
-    if (!stillOnline) {
-      console.log(`[main] Device ${serial} is no longer online; stopping mirror.`);
-      void mirrorManager.stop();
-    }
-  });
-
-  // Wire up mirror events → renderer (bound once after mirrorManager + window exist)
-  mirrorManager.on("video-init", (meta) => {
-    if (mainWindow?.webContents && !mainWindow.webContents.isDestroyed()) {
-      mainWindow.webContents.send("video:init", meta);
-    }
-  });
-
-  mirrorManager.on("video-codec", (codec: string) => {
-    if (mainWindow?.webContents && !mainWindow.webContents.isDestroyed()) {
-      mainWindow.webContents.send("video:codec", codec);
-    }
-  });
-
-  mirrorManager.on("video-chunk", (chunk: Buffer) => {
-    if (mainWindow?.webContents && !mainWindow.webContents.isDestroyed()) {
-      mainWindow.webContents.send("video:chunk", chunk);
-    }
-  });
-
-  mirrorManager.on("audio-init", (meta) => {
-    if (mainWindow?.webContents && !mainWindow.webContents.isDestroyed()) {
-      mainWindow.webContents.send("audio:init", meta);
-    }
-  });
-
-  mirrorManager.on("audio-chunk", (chunk: Buffer) => {
-    if (mainWindow?.webContents && !mainWindow.webContents.isDestroyed()) {
-      mainWindow.webContents.send("audio:chunk", chunk);
-    }
-  });
-
-  mirrorManager.on("state-changed", (state: string, err?: string) => {
-    if (mainWindow?.webContents && !mainWindow.webContents.isDestroyed()) {
-      mainWindow.webContents.send("mirror:state-changed", { state, error: err });
+      const stillOnline = status.devices.some(
+        (device) => device.serial === serial && device.state === "device"
+      );
+      if (!stillOnline) {
+        console.log(`[main] Device ${serial} for screen ${screenId} is no longer online; stopping mirror.`);
+        void session.stop();
+      }
     }
   });
 
@@ -218,9 +244,14 @@ app.whenReady().then(async () => {
 });
 
 app.on("window-all-closed", async () => {
-  if (mirrorManager) {
-    await mirrorManager.stop();
+  for (const session of mirrorSessions.values()) {
+    try {
+      await session.stop();
+    } catch {
+      // ignore
+    }
   }
+  mirrorSessions.clear();
   adbTracker.stop();
   if (process.platform !== "darwin") {
     app.quit();
@@ -295,39 +326,57 @@ ipcMain.handle("adb:pairWireless", async (_event, target: string, code: string, 
   return adbTracker.pairWireless(target, code, connectPort);
 });
 
-// Mirroring IPC handlers
-ipcMain.handle("mirror:start", async (_event, serial: string) => {
-  if (!mirrorManager) return false;
-  try {
-    // Resolves only once the stream is live (or the start failed).
-    await mirrorManager.start({ serial });
-  } catch (err) {
-    console.error("[main] mirror:start failed:", err);
+// Mirroring IPC handlers: multi-session enabled, conflict-free
+ipcMain.handle(
+  "mirror:start",
+  async (_event, serialOrOptions: string | { serial: string; screenId?: string }, screenIdArg?: string) => {
+    const serial = typeof serialOrOptions === "object" ? serialOrOptions.serial : serialOrOptions;
+    const screenId =
+      typeof serialOrOptions === "object"
+        ? (serialOrOptions.screenId ?? "primary")
+        : (screenIdArg ?? "primary");
+    const session = getOrCreateMirrorSession(screenId);
+    try {
+      // Resolves only once the stream is live (or the start failed).
+      await session.start({ serial });
+    } catch (err) {
+      console.error(`[main] mirror:start for screen ${screenId} failed:`, err);
+    }
+    return session.getState() === "running";
   }
-  return mirrorManager.getState() === "running";
-});
+);
 
-ipcMain.handle("mirror:stop", async () => {
-  if (!mirrorManager) return false;
-  await mirrorManager.stop();
+ipcMain.handle("mirror:stop", async (_event, screenId: string = "primary") => {
+  const session = mirrorSessions.get(screenId);
+  if (!session) return false;
+  await session.stop();
   return true;
 });
 
-ipcMain.handle("mirror:getState", () => {
-  return mirrorManager?.getState() ?? "stopped";
+ipcMain.handle("mirror:getState", (_event, screenId: string = "primary") => {
+  return mirrorSessions.get(screenId)?.getState() ?? "stopped";
 });
 
 // High-frequency pointer/scroll/key stream: fire-and-forget to keep input latency low.
-ipcMain.on("mirror:control", (_event, input: unknown) => {
-  mirrorManager?.injectInput(input);
+ipcMain.on("mirror:control", (_event, input: unknown, screenIdArg?: string) => {
+  let screenId = screenIdArg ?? "primary";
+  if (input && typeof input === "object" && "screenId" in input && typeof (input as any).screenId === "string") {
+    screenId = (input as any).screenId;
+  }
+  const session = mirrorSessions.get(screenId);
+  session?.injectInput(input);
 });
 
-// HUD audio state: the renderer owns the desktop gain, the main process owns
-// the phone's real media volume (exclusive routing).
-ipcMain.on("audio:settings", (_event, settings: { muted?: boolean; level?: number }) => {
-  if (!settings || typeof settings !== "object") return;
-  mirrorManager?.setDesktopAudio(
-    Boolean(settings.muted),
-    typeof settings.level === "number" ? settings.level : 1
-  );
-});
+// HUD audio state: exclusive routing per session
+ipcMain.on(
+  "audio:settings",
+  (_event, settings: { muted?: boolean; level?: number; screenId?: string }, screenIdArg?: string) => {
+    if (!settings || typeof settings !== "object") return;
+    const screenId = settings.screenId ?? screenIdArg ?? "primary";
+    const session = mirrorSessions.get(screenId);
+    session?.setDesktopAudio(
+      Boolean(settings.muted),
+      typeof settings.level === "number" ? settings.level : 1
+    );
+  }
+);

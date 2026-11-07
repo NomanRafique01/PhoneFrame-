@@ -4,6 +4,7 @@ import { DPad } from "../DPad/DPad";
 import type { DPadScrollTarget } from "../../input/dpadScroll";
 
 export interface VideoCanvasProps {
+  screenId?: string;
   width: number;
   height: number;
   isStreaming: boolean;
@@ -78,6 +79,7 @@ function normalizeWheelDelta(delta: number, deltaMode: number): number {
 }
 
 export const VideoCanvas: React.FC<VideoCanvasProps> = ({
+  screenId = "primary",
   isStreaming,
   dragMode = false,
   isDragging = false,
@@ -194,27 +196,27 @@ export const VideoCanvas: React.FC<VideoCanvasProps> = ({
     if (!window.electronAPI) return;
 
     const unInit = window.electronAPI.onVideoInit?.((meta) => {
-      console.log("[VideoCanvas] Received video:init:", meta);
+      console.log(`[VideoCanvas:${screenId}] Received video:init:`, meta);
       if (meta.width && meta.height) {
         if (canvasRef.current) {
           canvasRef.current.width = meta.width;
           canvasRef.current.height = meta.height;
         }
       }
-    });
+    }, screenId);
 
     const unCodec = window.electronAPI.onVideoCodec?.((codec) => {
-      console.log("[VideoCanvas] Received SPS codec update:", codec);
+      console.log(`[VideoCanvas:${screenId}] Received SPS codec update:`, codec);
       if (codec && codec !== currentCodecRef.current) {
         setupDecoder(codec);
       }
-    });
+    }, screenId);
 
     return () => {
       unInit?.();
       unCodec?.();
     };
-  }, []);
+  }, [screenId]);
 
   // Listen for framed H.264 video chunks. Subscribed for the component's whole
   // life (it mounts during "starting") so no config/keyframe is missed.
@@ -243,18 +245,18 @@ export const VideoCanvas: React.FC<VideoCanvasProps> = ({
           })
         );
       } catch (err) {
-        console.debug("[VideoCanvas] decode error:", err);
+        console.debug(`[VideoCanvas:${screenId}] decode error:`, err);
       }
     };
 
-    const unsubscribe = window.electronAPI.onVideoChunk?.(onVideoChunk);
+    const unsubscribe = window.electronAPI.onVideoChunk?.(onVideoChunk, screenId);
     return () => {
       unsubscribe?.();
     };
-  }, []);
+  }, [screenId]);
 
   const sendControl = (input: ScreenControlInput) => {
-    window.electronAPI?.sendControl?.(input);
+    window.electronAPI?.sendControl?.(input, screenId);
   };
 
   /**

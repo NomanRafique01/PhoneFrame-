@@ -504,3 +504,24 @@ export const SearchIcon: React.FC<IconProps> = ({ size = 18, ...props }) => (
     <line x1="21" y1="21" x2="16.65" y2="16.65" />
   </svg>
 );
+
+export const AddScreenIcon: React.FC<IconProps> = ({ size = 18, ...props }) => (
+  <svg
+    viewBox="0 0 24 24"
+    width={size}
+    height={size}
+    fill="none"
+    stroke="currentColor"
+    strokeWidth={1.5}
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+    {...props}
+  >
+    <rect x="4" y="3" width="11" height="18" rx="2" />
+    <line x1="8.5" y1="18" x2="10.5" y2="18" />
+    <circle cx="18" cy="16" r="4.5" fill="rgba(6, 20, 27, 0.9)" stroke="currentColor" strokeWidth={1.5} />
+    <line x1="18" y1="14" x2="18" y2="18" strokeWidth={1.5} />
+    <line x1="16" y1="16" x2="20" y2="16" strokeWidth={1.5} />
+  </svg>
+);

@@ -22,6 +22,7 @@ export type MirrorState = "stopped" | "starting" | "running" | "error";
 export interface MirrorStatePayload {
   state: MirrorState;
   error?: string;
+  screenId?: string;
 }
 
 export type ScreenControlInput =
@@ -67,20 +68,20 @@ export interface FloatingPhoneAPI {
   disconnectWireless: (target: string) => Promise<{ success: boolean; message: string }>;
   pairWireless: (target: string, code: string, connectPort?: string) => Promise<{ success: boolean; message: string }>;
 
-  // Real Mirroring
-  startMirror: (serial: string) => Promise<boolean>;
-  stopMirror: () => Promise<boolean>;
-  getMirrorState: () => Promise<MirrorState>;
-  onMirrorStateChange: (callback: (payload: MirrorStatePayload) => void) => () => void;
-  onVideoChunk: (callback: (chunk: Uint8Array) => void) => () => void;
-  onVideoInit?: (callback: (meta: { codec: string; width: number; height: number }) => void) => () => void;
-  onVideoCodec?: (callback: (codec: string) => void) => () => void;
-  onAudioInit?: (callback: (meta: { codec: string }) => void) => () => void;
-  onAudioChunk?: (callback: (chunk: Uint8Array) => void) => () => void;
-  setAudioSettings?: (settings: { muted: boolean; level: number }) => void;
+  // Real Mirroring (multi-session enabled, default screenId = "primary")
+  startMirror: (serial: string, screenId?: string) => Promise<boolean>;
+  stopMirror: (screenId?: string) => Promise<boolean>;
+  getMirrorState: (screenId?: string) => Promise<MirrorState>;
+  onMirrorStateChange: (callback: (payload: MirrorStatePayload) => void, screenId?: string) => () => void;
+  onVideoChunk: (callback: (chunk: Uint8Array) => void, screenId?: string) => () => void;
+  onVideoInit?: (callback: (meta: { codec: string; width: number; height: number }) => void, screenId?: string) => () => void;
+  onVideoCodec?: (callback: (codec: string) => void, screenId?: string) => () => void;
+  onAudioInit?: (callback: (meta: { codec: string }) => void, screenId?: string) => () => void;
+  onAudioChunk?: (callback: (chunk: Uint8Array) => void, screenId?: string) => () => void;
+  setAudioSettings?: (settings: { muted: boolean; level: number; screenId?: string }) => void;
 
   // Screen input (pointer, scroll, keyboard)
-  sendControl: (input: ScreenControlInput) => void;
+  sendControl: (input: ScreenControlInput, screenId?: string) => void;
 }
 
 declare global {

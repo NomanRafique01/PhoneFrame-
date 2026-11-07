@@ -6,7 +6,7 @@ import { PhoneAudioPlayer } from "./PhoneAudioPlayer";
  * lazily on the first audio packet, so devices that cannot capture audio
  * never pay for an AudioContext, and is released on unmount.
  */
-export function usePhoneAudio(muted: boolean, volume: number): void {
+export function usePhoneAudio(muted: boolean, volume: number, screenId?: string): void {
   const playerRef = useRef<PhoneAudioPlayer | null>(null);
   const mutedRef = useRef(muted);
   const volumeRef = useRef(volume);
@@ -25,10 +25,10 @@ export function usePhoneAudio(muted: boolean, volume: number): void {
 
     const unsubscribeInit = window.electronAPI.onAudioInit?.(() => {
       ensurePlayer();
-    });
+    }, screenId);
     const unsubscribeChunks = window.electronAPI.onAudioChunk((packet) => {
       ensurePlayer().push(packet);
-    });
+    }, screenId);
 
     return () => {
       unsubscribeInit?.();
@@ -36,7 +36,7 @@ export function usePhoneAudio(muted: boolean, volume: number): void {
       playerRef.current?.dispose();
       playerRef.current = null;
     };
-  }, []);
+  }, [screenId]);
 
   useEffect(() => {
     playerRef.current?.setMuted(muted);
@@ -49,6 +49,6 @@ export function usePhoneAudio(muted: boolean, volume: number): void {
   // The PC gain and the phone's real media volume must always describe the
   // same exclusive output, so the main process needs the same state.
   useEffect(() => {
-    window.electronAPI?.setAudioSettings?.({ muted, level: volume });
-  }, [muted, volume]);
+    window.electronAPI?.setAudioSettings?.({ muted, level: volume, screenId });
+  }, [muted, volume, screenId]);
 }
