@@ -30,6 +30,7 @@ export interface PhoneScreenItemProps {
   canCloseScreen: boolean;
   adbStatus: AdbStatusPayload;
   isInspecting: boolean;
+  isBackgrounded?: boolean;
   isFullscreen: boolean;
   onAddScreen: () => void;
   onCloseScreen: () => void;
@@ -67,6 +68,7 @@ export const PhoneScreenItem: React.FC<PhoneScreenItemProps> = ({
   canCloseScreen,
   adbStatus,
   isInspecting,
+  isBackgrounded = false,
   isFullscreen,
   onAddScreen,
   onCloseScreen,
@@ -224,7 +226,7 @@ export const PhoneScreenItem: React.FC<PhoneScreenItemProps> = ({
   const isStreaming = mirrorState === "running";
   const isStarting = mirrorState === "starting";
 
-  const hudVisible = !isHudCollapsed && (isHovered || isInspecting || isDragging || touchHudOpen);
+  const hudVisible = !isHudCollapsed && !isBackgrounded && (isHovered || isInspecting || isDragging || touchHudOpen);
   const effectiveHudVisible = hudVisible && !isFullscreen;
 
   // Collapsed side key metrics
@@ -254,6 +256,7 @@ export const PhoneScreenItem: React.FC<PhoneScreenItemProps> = ({
         display: "flex",
         zIndex,
         opacity,
+        pointerEvents: isBackgrounded ? "none" : "auto",
         filter: opacity < 0.95 ? "brightness(0.92)" : "none",
         transform: `translate(${offset.x}px, ${offset.y}px)`,
         transition: isDragging

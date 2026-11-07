@@ -153,6 +153,7 @@ export const App: React.FC = () => {
   const stageRef = useRef<HTMLDivElement>(null);
   const inspectorRef = useRef<HTMLElement | null>(null);
   const isFullscreenRef = useRef(false);
+  const savedOffsetsRef = useRef<Record<string, { x: number; y: number }>>({});
 
   const dragRef = useRef<{ screenId: string; pointerId: number; lastX: number; lastY: number } | null>(null);
   const dragHoldTimerRef = useRef<number | null>(null);
@@ -264,12 +265,12 @@ export const App: React.FC = () => {
       if (!(target instanceof Element)) return;
       if (inspectorRef.current?.contains(target)) return;
       if (target.closest('[data-inspector-toggle="true"]')) return;
-      setActiveInspectorScreenId(null);
+      handleCloseInspector();
     };
 
     window.addEventListener("pointerdown", handlePointerDown, true);
     return () => window.removeEventListener("pointerdown", handlePointerDown, true);
-  }, [showInspector]);
+  }, [showInspector, activeInspectorScreenId]);
 
   // Window Always-on-top handler
   const handleTogglePin = async () => {
@@ -344,6 +345,7 @@ export const App: React.FC = () => {
     if (activeInspectorScreenId === screenId) {
       setActiveInspectorScreenId(null);
     }
+    delete savedOffsetsRef.current[screenId];
   };
 
   const clearDragHold = () => {
@@ -487,8 +489,57 @@ export const App: React.FC = () => {
     );
   };
 
+  const handleCloseInspector = () => {
+    if (activeInspectorScreenId) {
+      const saved = savedOffsetsRef.current[activeInspectorScreenId];
+      if (saved) {
+        setScreens((prev) =>
+          prev.map((s) => (s.id === activeInspectorScreenId ? { ...s, offset: saved } : s))
+        );
+      }
+      setActiveInspectorScreenId(null);
+    }
+  };
+
   const handleToggleInspector = (screenId: string) => {
-    setActiveInspectorScreenId((prev) => (prev === screenId ? null : screenId));
+    setActiveInspectorScreenId((current) => {
+      if (current === screenId) {
+        // Closing inspector: restore position
+        const saved = savedOffsetsRef.current[screenId];
+        if (saved) {
+          setScreens((prev) =>
+            prev.map((s) => (s.id === screenId ? { ...s, offset: saved } : s))
+          );
+        }
+        return null;
+      } else {
+        // If another screen was active, restore its position first
+        if (current && savedOffsetsRef.current[current]) {
+          const prevSaved = savedOffsetsRef.current[current];
+          setScreens((prev) =>
+            prev.map((s) => (s.id === current ? { ...s, offset: prevSaved } : s))
+          );
+        }
+
+        // Save current offset of target screen
+        const targetScreen = screens.find((s) => s.id === screenId);
+        if (targetScreen) {
+          savedOffsetsRef.current[screenId] = { ...targetScreen.offset };
+        }
+
+        // Center active screen smoothly and elevate zIndex
+        setScreens((prev) => {
+          const maxZ = prev.reduce((max, s) => Math.max(max, s.zIndex), 0);
+          return prev.map((s) =>
+            s.id === screenId
+              ? { ...s, offset: { x: 0, y: 0 }, zIndex: maxZ + 10 }
+              : s
+          );
+        });
+
+        return screenId;
+      }
+    });
   };
 
   const handleQuickConnect = async () => {
@@ -537,8 +588,10 @@ export const App: React.FC = () => {
         }}
       >
         {screens.map((screen) => {
+          const isInspectingThis = activeInspectorScreenId === screen.id;
+          const isBackgrounded = showInspector && !isInspectingThis;
           const isUnderneath = underneathScreens.has(screen.id);
-          const screenOpacity = isUnderneath ? 0.35 : 1;
+          const screenOpacity = isBackgrounded ? 0.25 : isUnderneath ? 0.35 : 1;
 
           return (
             <PhoneScreenItem
@@ -551,15 +604,16 @@ export const App: React.FC = () => {
               zIndex={screen.zIndex}
               opacity={screenOpacity}
               isDragging={screen.isDragging}
-            isHovered={screen.isHovered}
-            dragMode={screen.dragMode}
-            isPinned={isPinned}
-            totalScreens={screens.length}
-            canAddScreen={screens.length < 4}
-            canCloseScreen={screens.length > 1}
-            adbStatus={adbStatus}
-            isInspecting={activeInspectorScreenId === screen.id}
-            isFullscreen={isFullscreen}
+              isHovered={screen.isHovered}
+              dragMode={screen.dragMode}
+              isPinned={isPinned}
+              totalScreens={screens.length}
+              canAddScreen={screens.length < 4}
+              canCloseScreen={screens.length > 1}
+              adbStatus={adbStatus}
+              isInspecting={isInspectingThis}
+              isBackgrounded={isBackgrounded}
+              isFullscreen={isFullscreen}
             onAddScreen={handleAddScreen}
             onCloseScreen={() => handleCloseScreen(screen.id)}
             onToggleInspector={() => handleToggleInspector(screen.id)}
@@ -696,7 +750,7 @@ export const App: React.FC = () => {
               </div>
             </div>
             <button
-              onClick={() => setActiveInspectorScreenId(null)}
+              onClick={handleCloseInspector}
               style={{
                 padding: "4px 8px",
                 borderRadius: "var(--radius-sm)",
