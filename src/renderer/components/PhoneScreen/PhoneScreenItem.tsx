@@ -7,7 +7,8 @@ import {
 import { FloatingHUD, DeviceNameHUD } from "../HUD";
 import { SetupWizard } from "../SetupWizard";
 import { VideoCanvas } from "../VideoCanvas/VideoCanvas";
-import { ChevronRightIcon, SmartphoneIcon, WifiIcon, CheckIcon } from "../icons";
+import { ChevronRightIcon, SmartphoneIcon } from "../icons";
+import { NoticeBanner } from "../Notice/NoticeBanner";
 import { usePhoneAudio } from "../../audio/usePhoneAudio";
 import type { AdbStatusPayload, MirrorState } from "../../types/electron";
 
@@ -589,62 +590,7 @@ export const PhoneScreenItem: React.FC<PhoneScreenItemProps> = ({
                   onStreamSizeChange={scheduleStreamOrientation}
                 />
                 {sessionNotice && (
-                  <div
-                    className="phone-notice"
-                    style={{
-                      position: "absolute",
-                      top: "var(--space-2)",
-                      left: "var(--space-3)",
-                      right: "var(--space-3)",
-                      zIndex: 80,
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "10px",
-                      padding: "8px 12px",
-                      borderRadius: "var(--radius-md)",
-                      border: sessionNotice.startsWith("✓")
-                        ? "1px solid rgba(52, 211, 153, 0.4)"
-                        : "1px solid rgba(255, 255, 255, 0.08)",
-                      backgroundColor: "rgba(17, 33, 45, 0.96)",
-                      backdropFilter: "blur(10px)",
-                      boxShadow: "0 10px 28px -8px rgba(0, 0, 0, 0.7)",
-                      pointerEvents: "none",
-                    }}
-                  >
-                    <span
-                      style={{
-                        width: "26px",
-                        height: "26px",
-                        borderRadius: "50%",
-                        backgroundColor: sessionNotice.startsWith("✓")
-                          ? "rgba(52, 211, 153, 0.16)"
-                          : "rgba(224, 176, 74, 0.14)",
-                        color: sessionNotice.startsWith("✓") ? "var(--success)" : "var(--warning)",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        flexShrink: 0,
-                      }}
-                    >
-                      {sessionNotice.startsWith("✓") ? (
-                        <CheckIcon size={14} />
-                      ) : (
-                        <WifiIcon size={14} />
-                      )}
-                    </span>
-                    <span
-                      style={{
-                        fontSize: "11px",
-                        fontWeight: 600,
-                        color: sessionNotice.startsWith("✓") ? "var(--success)" : "var(--mist-100)",
-                        overflow: "hidden",
-                        whiteSpace: "nowrap",
-                        textOverflow: "ellipsis",
-                      }}
-                    >
-                      {sessionNotice}
-                    </span>
-                  </div>
+                  <NoticeBanner message={sessionNotice} style={{ zIndex: 80 }} />
                 )}
                 {wifiMsg && !sessionNotice && (
                   <div

@@ -12,6 +12,7 @@ import {
   RefreshCwIcon,
   SearchIcon,
 } from "../icons";
+import { NoticeBanner } from "../Notice/NoticeBanner";
 
 export type ConnectionMode = "usb" | "wifi";
 export type WizardStepId =
@@ -80,10 +81,16 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
   // Wireless Wi-Fi switch & direct connect states
   const [isScanning, setIsScanning] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
+  // Which long-running connection action owns the loading card.
+  const [pendingAction, setPendingAction] = useState<"switch" | "ip" | null>(null);
   const [hasSwitched, setHasSwitched] = useState(false);
   const [switchResult, setSwitchResult] = useState<{ ip?: string; serial?: string } | null>(null);
   const [connectionFeedback, setConnectionFeedback] = useState<string | null>(null);
   const [manualIp, setManualIp] = useState<string>("");
+  // While a switch is in flight ADB restarts the link, so the USB entry drops
+  // out of the poll for a moment. This keeps the card from flashing "No USB
+  // device detected" mid-switch.
+  const switchingRef = useRef(false);
 
   // Sync mode whenever initialMode updates (e.g. resets to null on stream stop)
   useEffect(() => {
@@ -118,6 +125,9 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
 
   // If the currently discovered device goes offline, clear it cleanly without dropping wireless when USB unplugs.
   useEffect(() => {
+    // A switch restarts the ADB link; keep the current card while it settles.
+    if (switchingRef.current) return;
+
     if (discoveredDevice) {
       const isWirelessMode = hasSwitched || Boolean(discoveredDevice.isWireless);
       const targetSerial = isWirelessMode
@@ -253,7 +263,11 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
       title: "Device Connection & Switch",
       instruction: "Connect your phone via USB or Wi-Fi IP to configure wireless mode.",
       detail: "Enables ADB TCP connection over your local network for wireless streaming.",
-      statusText: isDeviceOnline
+      statusText: isConnecting
+        ? pendingAction === "switch"
+          ? "Switching to wireless link..."
+          : "Connecting over Wi-Fi..."
+        : isDeviceOnline
         ? activeDevice?.isWireless
           ? "Wireless link active"
           : "USB device ready to switch"
@@ -431,7 +445,9 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
   const handleConnectManualIp = async () => {
     if (!manualIp.trim() || !window.electronAPI || isConnecting) return;
     setIsConnecting(true);
-    setConnectionFeedback(`Connecting to ${manualIp.trim()}…`);
+    setPendingAction("ip");
+    switchingRef.current = true;
+    setConnectionFeedback(null);
     try {
       const res = await window.electronAPI.connectWireless(manualIp.trim());
       if (res.success) {
@@ -451,14 +467,21 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
     } catch (e: any) {
       setConnectionFeedback(e?.message || "Connection error");
     } finally {
+      switchingRef.current = false;
       setIsConnecting(false);
+      setPendingAction(null);
     }
   };
 
   const handleSwitchFromUsb = async () => {
     if (!activeDevice || !window.electronAPI || isConnecting) return;
     setIsConnecting(true);
-    setConnectionFeedback("Configuring wireless TCP mode…");
+    setPendingAction("switch");
+    switchingRef.current = true;
+    setConnectionFeedback(null);
+    // Suppress the "device disconnected" check for the whole switch, starting
+    // the moment ADB restarts the USB link.
+    lastSwitchedAtRef.current = Date.now();
     try {
       const res = await window.electronAPI.enableWireless(activeDevice.serial);
       if (res.success && res.ip) {
@@ -489,94 +512,15 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
     } catch (e: any) {
       setConnectionFeedback(e?.message || "Error switching to Wi-Fi");
     } finally {
+      switchingRef.current = false;
       setIsConnecting(false);
+      setPendingAction(null);
     }
   };
 
   const renderNoticeBanner = () => {
     if (!activeNotice) return null;
-    const isSuccess = activeNotice.startsWith("✓");
-    return (
-      <div
-        className="phone-notice"
-        style={{
-          position: "absolute",
-          top: "var(--space-2)",
-          left: "var(--space-3)",
-          right: "var(--space-3)",
-          zIndex: 50,
-          display: "flex",
-          alignItems: "center",
-          gap: "10px",
-          padding: "8px 12px",
-          borderRadius: "var(--radius-md)",
-          border: isSuccess ? "1px solid rgba(52, 211, 153, 0.4)" : "1px solid rgba(255, 255, 255, 0.08)",
-          backgroundColor: "rgba(17, 33, 45, 0.96)",
-          backdropFilter: "blur(10px)",
-          boxShadow: "0 10px 28px -8px rgba(0, 0, 0, 0.7)",
-          pointerEvents: "none",
-        }}
-      >
-        <span
-          style={{
-            width: "26px",
-            height: "26px",
-            borderRadius: "50%",
-            backgroundColor: isSuccess ? "rgba(52, 211, 153, 0.16)" : "rgba(224, 176, 74, 0.14)",
-            color: isSuccess ? "var(--success)" : "var(--warning)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            flexShrink: 0,
-          }}
-        >
-          {isSuccess ? <CheckIcon size={14} /> : mode === "wifi" ? <WifiIcon size={14} /> : <UsbIcon size={14} />}
-        </span>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ display: "flex", alignItems: "baseline", gap: "6px" }}>
-            <span
-              style={{
-                fontSize: "11px",
-                fontWeight: 600,
-                color: isSuccess ? "var(--success)" : "var(--mist-200)",
-                whiteSpace: "nowrap",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-              }}
-            >
-              {activeNotice.split(". ")[0]}
-            </span>
-            <span
-              className="mono-data"
-              style={{
-                marginLeft: "auto",
-                fontSize: "9px",
-                color: "var(--mist-400)",
-                opacity: 0.6,
-                flexShrink: 0,
-              }}
-            >
-              now
-            </span>
-          </div>
-          {activeNotice.includes(". ") && (
-            <div
-              style={{
-                fontSize: "10px",
-                color: "var(--mist-400)",
-                lineHeight: 1.35,
-                marginTop: "1px",
-                whiteSpace: "nowrap",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-              }}
-            >
-              {activeNotice.slice(activeNotice.indexOf(". ") + 2)}
-            </div>
-          )}
-        </div>
-      </div>
-    );
+    return <NoticeBanner message={activeNotice} />;
   };
 
   // If no connection mode is chosen yet, show the centered two-option selection screen
@@ -1568,8 +1512,63 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
           </div>
         ) : currentStep.id === "wifi_pair" ? (
           <div style={{ width: "100%", maxWidth: "300px", display: "flex", flexDirection: "column", gap: "10px", margin: "0 auto" }}>
-            {/* Case A: Wireless link is established */}
-            {hasSwitched || activeDevice?.isWireless ? (
+            {isConnecting ? (
+              /* Loading: the switch restarts ADB, so hold this card instead of
+                 flashing the "no device" state while the link settles. */
+              <div
+                role="status"
+                aria-live="polite"
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  textAlign: "center",
+                  gap: "12px",
+                  padding: "20px 16px",
+                  backgroundColor: "rgba(16, 27, 36, 0.85)",
+                  border: "1px solid var(--border)",
+                  borderRadius: "var(--radius-md)",
+                }}
+              >
+                <div
+                  style={{
+                    width: "46px",
+                    height: "46px",
+                    borderRadius: "50%",
+                    backgroundColor: "var(--ink-950)",
+                    border: "1px solid var(--border)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    color: "var(--accent)",
+                  }}
+                >
+                  <RefreshCwIcon size={20} className="spin" />
+                </div>
+
+                <div>
+                  <div style={{ fontSize: "13px", fontWeight: 700, color: "var(--mist-100)" }}>
+                    {pendingAction === "switch" ? "Switching to Wi-Fi Mode" : "Connecting over Wi-Fi"}
+                  </div>
+                  <div style={{ fontSize: "11px", color: "var(--mist-400)", marginTop: "4px", lineHeight: 1.45 }}>
+                    {pendingAction === "switch"
+                      ? "Enabling ADB over TCP and re-registering your phone on the wireless link. Keep the USB cable connected for a few seconds."
+                      : `Reaching ${manualIp.trim() || "your phone"} over the local network…`}
+                  </div>
+                </div>
+
+                <div
+                  className="mono-data"
+                  style={{
+                    fontSize: "9.5px",
+                    letterSpacing: "0.08em",
+                    color: "var(--mist-400)",
+                  }}
+                >
+                  THIS TAKES 3–5 SECONDS
+                </div>
+              </div>
+            ) : hasSwitched || activeDevice?.isWireless ? (
               <div
                 style={{
                   display: "flex",
@@ -1700,16 +1699,15 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
                     fontWeight: 700,
                     fontSize: "12px",
                     border: "none",
-                    cursor: isConnecting ? "not-allowed" : "pointer",
-                    opacity: isConnecting ? 0.75 : 1,
+                    cursor: "pointer",
                   }}
                 >
                   <WifiIcon size={14} />
-                  <span>{isConnecting ? "Configuring Wi-Fi Mode…" : "Switch to Wi-Fi Mode"}</span>
+                  <span>Switch to Wi-Fi Mode</span>
                 </button>
               </div>
             ) : (
-              /* Case C: No USB device detected yet */
+              /* Case C: No device connected yet (USB bridge or direct IP) */
               <div
                 style={{
                   display: "flex",
@@ -1736,15 +1734,15 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
                     color: "var(--mist-400)",
                   }}
                 >
-                  <UsbIcon size={20} />
+                  <WifiIcon size={20} />
                 </div>
 
                 <div>
                   <div style={{ fontSize: "13px", fontWeight: 600, color: "var(--mist-100)" }}>
-                    No USB device detected
+                    No device connected yet
                   </div>
                   <div style={{ fontSize: "11px", color: "var(--mist-400)", marginTop: "4px", lineHeight: 1.45 }}>
-                    Connect phone with a USB data cable and verify USB debugging is authorized.
+                    Plug in a USB data cable to bridge your phone onto Wi-Fi, or connect with the phone's IP address below.
                   </div>
                 </div>
 
@@ -1774,6 +1772,8 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
               </div>
             )}
 
+            {!isConnecting && (
+              <>
             {/* Direct IP Connect option */}
             <div style={{ width: "100%", marginTop: "4px", paddingTop: "8px", borderTop: "1px solid rgba(255,255,255,0.06)" }}>
               <div style={{ fontSize: "10px", color: "var(--mist-400)", marginBottom: "6px", textAlign: "left" }}>
@@ -1834,6 +1834,8 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
               >
                 {connectionFeedback}
               </div>
+            )}
+              </>
             )}
           </div>
         ) : (
