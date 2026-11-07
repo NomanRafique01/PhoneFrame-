@@ -115,7 +115,6 @@ export const PhoneScreenItem: React.FC<PhoneScreenItemProps> = ({
   const [sessionNotice, setSessionNotice] = useState<string | null>(null);
   const [isSwitchingToWifi, setIsSwitchingToWifi] = useState(false);
   const [wifiBusy, setWifiBusy] = useState(false);
-  const [wifiMsg, setWifiMsg] = useState<string | null>(null);
   const [audioMuted, setAudioMuted] = useState(false);
   const [audioVolume, setAudioVolume] = useState(0.55);
 
@@ -255,7 +254,6 @@ export const PhoneScreenItem: React.FC<PhoneScreenItemProps> = ({
     isSwitchingToWifiRef.current = true;
     setIsSwitchingToWifi(true);
     setWifiBusy(true);
-    setWifiMsg("Switching this phone to Wi-Fi…");
 
     const stopCurrentStream = async () => {
       if (mirrorState === "running" || mirrorState === "starting") {
@@ -268,7 +266,6 @@ export const PhoneScreenItem: React.FC<PhoneScreenItemProps> = ({
     const failSwitch = async (message: string) => {
       setIsSwitchingToWifi(false);
       showSessionNotice(message);
-      setWifiMsg(null);
       // Let the notice land on the last frame before the stream closes.
       await new Promise((resolve) => setTimeout(resolve, 1200));
       await stopCurrentStream();
@@ -290,7 +287,6 @@ export const PhoneScreenItem: React.FC<PhoneScreenItemProps> = ({
       }
 
       const wifiSerial = `${res.ip}:5555`;
-      setWifiMsg(`Re-routing stream to ${wifiSerial}…`);
       await stopCurrentStream();
       await new Promise((r) => setTimeout(r, 600));
 
@@ -301,7 +297,6 @@ export const PhoneScreenItem: React.FC<PhoneScreenItemProps> = ({
         return;
       }
 
-      setWifiMsg("✓ Streaming over Wi-Fi! You can now unplug the USB cable.");
       showSessionNotice("✓ Streaming over Wi-Fi! You can now unplug the USB cable.");
       // The running event normally clears the overlay; this is the fallback.
       window.setTimeout(() => {
@@ -312,9 +307,6 @@ export const PhoneScreenItem: React.FC<PhoneScreenItemProps> = ({
       await failSwitch(`✕ ${e?.message || "Error switching to Wi-Fi"}. Stream ended.`);
     } finally {
       setWifiBusy(false);
-      setTimeout(() => {
-        setWifiMsg((prev) => (prev?.startsWith("✓") ? null : prev));
-      }, 7000);
     }
   };
 
@@ -322,7 +314,6 @@ export const PhoneScreenItem: React.FC<PhoneScreenItemProps> = ({
     if (!window.electronAPI) return;
     const serial = activeDevice?.serial;
     setWifiBusy(true);
-    setWifiMsg("Disconnecting Wi-Fi…");
     try {
       if (mirrorState === "running" || mirrorState === "starting") {
         await window.electronAPI.stopMirror(screenId);
@@ -333,13 +324,11 @@ export const PhoneScreenItem: React.FC<PhoneScreenItemProps> = ({
       setIsWizardActive(true);
       onUpdateConnectionMode?.(null);
       onSerialReleased?.();
-      setWifiMsg("Wi-Fi disconnected");
       showSessionNotice("Wi-Fi stream disconnected.");
     } catch (e: any) {
-      setWifiMsg(e?.message || "Error disconnecting Wi-Fi");
+      showSessionNotice(`✕ ${e?.message || "Error disconnecting Wi-Fi"}`);
     } finally {
       setWifiBusy(false);
-      setTimeout(() => setWifiMsg(null), 4000);
     }
   };
 
@@ -671,29 +660,6 @@ export const PhoneScreenItem: React.FC<PhoneScreenItemProps> = ({
                 </div>
                 {sessionNotice && (
                   <NoticeBanner message={sessionNotice} style={{ zIndex: 80 }} />
-                )}
-                {wifiMsg && !sessionNotice && (
-                  <div
-                    style={{
-                      position: "absolute",
-                      bottom: "16px",
-                      left: "50%",
-                      transform: "translateX(-50%)",
-                      zIndex: 60,
-                      padding: "4px 12px",
-                      borderRadius: "14px",
-                      backgroundColor: "rgba(6, 20, 27, 0.95)",
-                      border: "1px solid var(--border)",
-                      boxShadow: "0 4px 14px rgba(0, 0, 0, 0.5)",
-                      fontSize: "10px",
-                      fontWeight: 500,
-                      color: "var(--success)",
-                      whiteSpace: "nowrap",
-                      pointerEvents: "none",
-                    }}
-                  >
-                    {wifiMsg}
-                  </div>
                 )}
               </>
             ) : (
