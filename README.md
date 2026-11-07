@@ -75,6 +75,10 @@ The latest version is always available on the [releases page](https://github.com
 
 ## Features
 
+### Connectivity
+- **USB or Wi-Fi, your choice** — start over USB for zero-setup debugging, or connect ADB over Wi-Fi (`<ip>:5555`); the setup wizard also accepts a direct IP address and Android 11+ wireless pairing
+- **Switch to Wi-Fi mid-stream** — the HUD re-routes an active USB stream onto the wireless link in place, holding the last frame under a progress overlay, so you can unplug the cable as soon as it reconnects
+
 ### Mirroring
 - **WebCodecs H.264 pipeline** — the bundled scrcpy server streams over ADB sockets; frames are decoded with the hardware-accelerated `VideoDecoder` API and drawn straight to a GPU-backed canvas
 - **Low-latency input** — pointer, drag, scroll, and keyboard events travel back through the scrcpy control channel without restarting the stream
@@ -88,6 +92,10 @@ The latest version is always available on the [releases page](https://github.com
 - **Drag mode** — a deliberate hold moves the frame without stealing taps meant for the device
 - **Immersive landscape fullscreen** — the mirrored display covers the whole monitor, taskbar included, while portrait stays windowed by design
 - **Contextual HUD** — a slide-out drawer and a collapsed hardware side key keep controls reachable without permanent chrome
+
+### Multiple phones
+- **Up to four frames at once** — each frame mirrors its own device, cascades into place when added, and stays independently draggable, resizable, and clickable
+- **Independent settings per frame** — every frame owns its finish, bezel, radii, notch, orientation, scale, assigned device, and connection mode, so changing or stopping one never disturbs the others
 
 ### Distribution
 - **Bundled backend** — `scrcpy-server-v3.1.jar` and Google's Windows platform-tools ship with the project, so there is no separate scrcpy or Android SDK install on Windows
