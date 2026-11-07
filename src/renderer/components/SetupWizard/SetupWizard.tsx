@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import type { AdbStatusPayload } from "../../types/electron";
+import type { AdbStatusPayload, AdbDeviceInfo } from "../../types/electron";
 import {
   UsbIcon,
   WifiIcon,
@@ -37,8 +37,13 @@ interface SetupWizardProps {
   adbStatus?: AdbStatusPayload;
   notice?: string | null;
   deviceName?: string;
+  slotNumber?: number;
+  isNameAssigned?: boolean;
+  initialMode?: ConnectionMode | null;
   onDeviceNameChange?: (name: string) => void;
-  onComplete?: () => void;
+  onNameAssigned?: () => void;
+  onSelectMode?: (mode: ConnectionMode) => void;
+  onComplete?: (serial?: string) => void;
   onDismiss?: () => void;
   occupiedSerials?: string[];
 }
@@ -47,12 +52,17 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
   adbStatus,
   notice,
   deviceName = "",
+  slotNumber,
+  isNameAssigned = false,
+  initialMode = null,
   onDeviceNameChange,
+  onNameAssigned,
+  onSelectMode,
   onComplete,
   onDismiss,
   occupiedSerials = [],
 }) => {
-  const [mode, setMode] = useState<ConnectionMode | null>(null);
+  const [mode, setMode] = useState<ConnectionMode | null>(initialMode);
   const [isNamingStep, setIsNamingStep] = useState(false);
   // Each time user enters naming step, input starts fresh and empty
   const [customDeviceName, setCustomDeviceName] = useState<string>("");
@@ -250,15 +260,25 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
     }
   };
 
+  const handleSelectMode = (selectedMode: ConnectionMode) => {
+    setMode(selectedMode);
+    onSelectMode?.(selectedMode);
+    if (!isNameAssigned) {
+      setCustomDeviceName("");
+      setIsNamingStep(true);
+    } else {
+      // Once the name got assigned, do not show naming step on starting again the stream!
+      setIsNamingStep(false);
+      setCurrentStepIndex(0);
+    }
+  };
+
   const handleConfirmName = () => {
-    const finalName =
-      customDeviceName.trim() ||
-      activeDevice?.model ||
-      (mode === "wifi" ? "Wi-Fi Device" : "USB Device");
+    // In case user won't type any name, give it phone name as Phone 1, 2, 3 and so on
+    const defaultName = deviceName || (slotNumber ? `Phone ${slotNumber}` : "Phone 1");
+    const finalName = customDeviceName.trim() || defaultName;
     onDeviceNameChange?.(finalName);
-    try {
-      localStorage.setItem("phoneframe_device_nickname", finalName);
-    } catch {}
+    onNameAssigned?.();
     setCustomDeviceName("");
     setIsNamingStep(false);
     // If device is already online and authorized, jump directly to ready
@@ -279,8 +299,12 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
     if (currentStepIndex > 0) {
       setCurrentStepIndex(currentStepIndex - 1);
     } else {
-      setCustomDeviceName("");
-      setIsNamingStep(true);
+      if (!isNameAssigned) {
+        setCustomDeviceName("");
+        setIsNamingStep(true);
+      } else {
+        setMode(null);
+      }
     }
   };
 
@@ -441,11 +465,7 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
             {/* Option 1: USB Cable */}
             <button
               type="button"
-              onClick={() => {
-                setCustomDeviceName("");
-                setMode("usb");
-                setIsNamingStep(true);
-              }}
+              onClick={() => handleSelectMode("usb")}
               style={{
                 display: "flex",
                 alignItems: "center",
@@ -511,11 +531,7 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
             {/* Option 2: Wi-Fi Wireless */}
             <button
               type="button"
-              onClick={() => {
-                setCustomDeviceName("");
-                setMode("wifi");
-                setIsNamingStep(true);
-              }}
+              onClick={() => handleSelectMode("wifi")}
               style={{
                 display: "flex",
                 alignItems: "center",
@@ -817,7 +833,7 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
                       handleConfirmName();
                     }
                   }}
-                  placeholder={activeDevice?.model || (isWifiMode ? "e.g. My Phone (Wi-Fi)" : "e.g. My Phone (USB)")}
+                  placeholder={deviceName || (slotNumber ? `Phone ${slotNumber}` : "Phone 1")}
                   className="mono-data"
                   style={{
                     width: "100%",

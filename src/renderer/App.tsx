@@ -16,6 +16,9 @@ const DRAG_MOVE_TOLERANCE = 6;
 export interface ScreenInstance {
   id: string;
   name: string;
+  slotNumber: number;
+  connectionMode?: "usb" | "wifi" | null;
+  isNameAssigned?: boolean;
   options: PhoneFrameOptions;
   scale: number;
   offset: { x: number; y: number };
@@ -91,13 +94,6 @@ function computeUnderneathScreens(screens: ScreenInstance[]): Set<string> {
 
 export const App: React.FC = () => {
   const [screens, setScreens] = useState<ScreenInstance[]>(() => {
-    let savedNickname = "";
-    try {
-      savedNickname = localStorage.getItem("phoneframe_device_nickname")?.trim() || "";
-    } catch {
-      // Ignore storage restrictions
-    }
-
     let savedScale = 70;
     try {
       const saved = localStorage.getItem("phoneframe_scale_v5");
@@ -112,7 +108,10 @@ export const App: React.FC = () => {
     return [
       {
         id: "primary",
-        name: savedNickname || "Phone 1",
+        name: "Phone 1",
+        slotNumber: 1,
+        connectionMode: null,
+        isNameAssigned: false,
         options: {
           bezelWidth: 16,
           outerRadius: 40,
@@ -311,7 +310,17 @@ export const App: React.FC = () => {
   // Add screen: up to 4 total, cascading with slight space and natural overlay
   const handleAddScreen = () => {
     if (screens.length >= 4) return;
-    const newIndex = screens.length + 1;
+
+    // Find lowest available slot in 1..4 (or the slot/number of phone deleted)
+    const takenSlots = new Set(screens.map((s) => s.slotNumber));
+    let nextSlot = 1;
+    for (let i = 1; i <= 4; i++) {
+      if (!takenSlots.has(i)) {
+        nextSlot = i;
+        break;
+      }
+    }
+
     const newId = `screen-${Date.now()}`;
     const maxZ = screens.reduce((max, s) => Math.max(max, s.zIndex), 0);
 
@@ -324,7 +333,10 @@ export const App: React.FC = () => {
 
     const newScreen: ScreenInstance = {
       id: newId,
-      name: `Phone ${newIndex}`,
+      name: `Phone ${nextSlot}`,
+      slotNumber: nextSlot,
+      connectionMode: null,
+      isNameAssigned: false,
       options: {
         bezelWidth: 16,
         outerRadius: 40,
@@ -351,9 +363,9 @@ export const App: React.FC = () => {
     setScreens((prev) => [...prev, newScreen]);
   };
 
-  // Close screen: primary cannot be closed if it's the only one
+  // Close screen: close specific phone screen as long as there is more than 1 screen
   const handleCloseScreen = (screenId: string) => {
-    if (screenId === "primary" && screens.length === 1) return;
+    if (screens.length <= 1) return;
     window.electronAPI?.stopMirror?.(screenId);
     setScreens((prev) => prev.filter((s) => s.id !== screenId));
     if (activeInspectorScreenId === screenId) {
@@ -650,6 +662,9 @@ export const App: React.FC = () => {
               key={screen.id}
               screenId={screen.id}
               name={screen.name}
+              slotNumber={screen.slotNumber}
+              connectionMode={screen.connectionMode}
+              isNameAssigned={screen.isNameAssigned}
               options={screen.options}
               scale={screen.scale}
               offset={screen.offset}
@@ -677,26 +692,31 @@ export const App: React.FC = () => {
               isInspecting={isInspectingThis}
               isBackgrounded={isBackgrounded}
               isFullscreen={isFullscreen}
-            onAddScreen={handleAddScreen}
-            onCloseScreen={() => handleCloseScreen(screen.id)}
-            onToggleInspector={() => handleToggleInspector(screen.id)}
-            onTogglePin={handleTogglePin}
-            onToggleDragMode={() => handleToggleDragMode(screen.id)}
-            onUpdateName={(name) => {
-              setScreens((prev) =>
-                prev.map((s) => (s.id === screen.id ? { ...s, name } : s))
-              );
-              if (screen.id === "primary") {
-                try {
-                  localStorage.setItem("phoneframe_device_nickname", name);
-                } catch {}
+              onAddScreen={handleAddScreen}
+              onCloseScreen={() => handleCloseScreen(screen.id)}
+              onToggleInspector={() => handleToggleInspector(screen.id)}
+              onTogglePin={handleTogglePin}
+              onToggleDragMode={() => handleToggleDragMode(screen.id)}
+              onUpdateName={(name) => {
+                setScreens((prev) =>
+                  prev.map((s) => (s.id === screen.id ? { ...s, name } : s))
+                );
+              }}
+              onNameAssigned={() => {
+                setScreens((prev) =>
+                  prev.map((s) => (s.id === screen.id ? { ...s, isNameAssigned: true } : s))
+                );
+              }}
+              onUpdateConnectionMode={(mode) => {
+                setScreens((prev) =>
+                  prev.map((s) => (s.id === screen.id ? { ...s, connectionMode: mode } : s))
+                );
+              }}
+              onOptionsChange={(options) =>
+                setScreens((prev) =>
+                  prev.map((s) => (s.id === screen.id ? { ...s, options } : s))
+                )
               }
-            }}
-            onOptionsChange={(options) =>
-              setScreens((prev) =>
-                prev.map((s) => (s.id === screen.id ? { ...s, options } : s))
-              )
-            }
             onScaleChange={(scale) => {
               setScreens((prev) =>
                 prev.map((s) => (s.id === screen.id ? { ...s, scale } : s))

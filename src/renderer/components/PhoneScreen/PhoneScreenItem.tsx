@@ -16,6 +16,9 @@ const ORIENTATION_SETTLE_MS = 160;
 export interface PhoneScreenItemProps {
   screenId: string;
   name: string;
+  slotNumber?: number;
+  connectionMode?: "usb" | "wifi" | null;
+  isNameAssigned?: boolean;
   options: PhoneFrameOptions;
   scale: number;
   offset: { x: number; y: number };
@@ -39,6 +42,8 @@ export interface PhoneScreenItemProps {
   onTogglePin: () => void;
   onToggleDragMode: () => void;
   onUpdateName: (name: string) => void;
+  onNameAssigned?: () => void;
+  onUpdateConnectionMode?: (mode: "usb" | "wifi") => void;
   onOptionsChange: (opts: PhoneFrameOptions) => void;
   onScaleChange: (scale: number) => void;
   onSerialAssigned?: (serial: string) => void;
@@ -57,6 +62,9 @@ export interface PhoneScreenItemProps {
 export const PhoneScreenItem: React.FC<PhoneScreenItemProps> = ({
   screenId,
   name,
+  slotNumber,
+  connectionMode,
+  isNameAssigned,
   options,
   scale,
   offset,
@@ -80,6 +88,8 @@ export const PhoneScreenItem: React.FC<PhoneScreenItemProps> = ({
   onTogglePin,
   onToggleDragMode,
   onUpdateName,
+  onNameAssigned,
+  onUpdateConnectionMode,
   onOptionsChange,
   onScaleChange,
   onSerialAssigned,
@@ -361,6 +371,8 @@ export const PhoneScreenItem: React.FC<PhoneScreenItemProps> = ({
         frameScale={frameScale}
         visible={effectiveHudVisible}
         onClick={onToggleInspector}
+        canCloseScreen={canCloseScreen}
+        onCloseScreen={onCloseScreen}
       />
 
       {/* Floating Contextual HUD Drawer */}
@@ -393,6 +405,7 @@ export const PhoneScreenItem: React.FC<PhoneScreenItemProps> = ({
         }}
       >
         <FloatingHUD
+          connectionMode={connectionMode ?? (activeDevice?.isWireless ? "wifi" : null)}
           dragMode={dragMode}
           onToggleDragMode={onToggleDragMode}
           dpadEnabled={dpadEnabled}
@@ -523,7 +536,12 @@ export const PhoneScreenItem: React.FC<PhoneScreenItemProps> = ({
                 occupiedSerials={occupiedSerials}
                 notice={sessionNotice}
                 deviceName={name}
+                slotNumber={slotNumber}
+                isNameAssigned={isNameAssigned}
+                initialMode={connectionMode}
                 onDeviceNameChange={onUpdateName}
+                onNameAssigned={onNameAssigned}
+                onSelectMode={onUpdateConnectionMode}
                 onComplete={handleStartMirror}
                 onDismiss={() => setIsWizardActive(false)}
               />
@@ -629,7 +647,7 @@ export const PhoneScreenItem: React.FC<PhoneScreenItemProps> = ({
                 <div style={{ display: "flex", gap: "var(--space-2)" }}>
                   {isDeviceConnected && (
                     <button
-                      onClick={handleStartMirror}
+                      onClick={() => handleStartMirror()}
                       style={{
                         padding: "6px 14px",
                         borderRadius: "var(--radius-sm)",

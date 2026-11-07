@@ -23,6 +23,7 @@ interface FloatingHUDProps {
   totalScreens?: number;
   onCloseScreen?: () => void;
   canCloseScreen?: boolean;
+  connectionMode?: "usb" | "wifi" | null;
   dragMode: boolean;
   onToggleDragMode: () => void;
   dpadEnabled: boolean;
@@ -182,6 +183,7 @@ const VolumeSlider: React.FC<VolumeSliderProps> = ({ value, onChange }) => {
 };
 
 export const FloatingHUD: React.FC<FloatingHUDProps> = ({
+  connectionMode,
   dragMode,
   onToggleDragMode,
   dpadEnabled,
@@ -403,8 +405,8 @@ export const FloatingHUD: React.FC<FloatingHUDProps> = ({
         </div>
       </div>
 
-      {/* 1-Click Switch to Wi-Fi button (available while streaming via USB) */}
-      {isStreaming && !isWireless && onSwitchToWifi && (
+      {/* 1-Click Switch to Wi-Fi button (available in USB mode / wired mode) */}
+      {!isWireless && onSwitchToWifi && (
         <button
           onClick={onSwitchToWifi}
           disabled={wifiBusy}
@@ -533,15 +535,24 @@ export const FloatingHUD: React.FC<FloatingHUDProps> = ({
         <MinimizeIcon size={16} />
       </button>
 
-      {/* Close Window */}
+      {/* Close Window / Close Screen */}
       <button
         onClick={onClose}
-        title="Close FloatingPhone"
+        title={canCloseScreen ? "Close this phone screen" : "Close FloatingPhone"}
+        aria-label={canCloseScreen ? "Close this phone screen" : "Close FloatingPhone"}
         style={{
           width: "36px",
           height: "36px",
           borderRadius: "var(--radius-sm)",
           color: "var(--mist-400)",
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.color = "#ef4444";
+          e.currentTarget.style.backgroundColor = "rgba(239, 68, 68, 0.15)";
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.color = "var(--mist-400)";
+          e.currentTarget.style.backgroundColor = "transparent";
         }}
       >
         <CloseIcon size={16} />

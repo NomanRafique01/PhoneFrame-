@@ -1,5 +1,5 @@
 import React from "react";
-import { SmartphoneIcon, UsbIcon, WifiIcon } from "../icons";
+import { SmartphoneIcon, UsbIcon, WifiIcon, CloseIcon } from "../icons";
 
 interface DeviceNameHUDProps {
   name: string;
@@ -9,6 +9,8 @@ interface DeviceNameHUDProps {
   frameScale: number;
   visible: boolean;
   onClick?: () => void;
+  canCloseScreen?: boolean;
+  onCloseScreen?: () => void;
 }
 
 export const DeviceNameHUD: React.FC<DeviceNameHUDProps> = ({
@@ -19,6 +21,8 @@ export const DeviceNameHUD: React.FC<DeviceNameHUDProps> = ({
   frameScale,
   visible,
   onClick,
+  canCloseScreen,
+  onCloseScreen,
 }) => {
   const scaledPaddingY = Math.max(3, Math.round(5 * frameScale));
   const scaledPaddingX = Math.max(8, Math.round(14 * frameScale));
@@ -155,6 +159,43 @@ export const DeviceNameHUD: React.FC<DeviceNameHUDProps> = ({
         >
           {isStreaming ? "LIVE" : isWireless ? "WI-FI" : "USB"}
         </span>
+
+        {/* Close / Cross screen button */}
+        {canCloseScreen && onCloseScreen && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onCloseScreen();
+            }}
+            title="Close this phone"
+            aria-label="Close this phone"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: "2px",
+              marginLeft: "2px",
+              background: "transparent",
+              border: "none",
+              borderRadius: "50%",
+              color: "var(--mist-400)",
+              cursor: "pointer",
+              lineHeight: 1,
+              transition: "color 140ms ease, background-color 140ms ease",
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.color = "#ef4444";
+              e.currentTarget.style.backgroundColor = "rgba(239, 68, 68, 0.2)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.color = "var(--mist-400)";
+              e.currentTarget.style.backgroundColor = "transparent";
+            }}
+          >
+            <CloseIcon size={Math.max(10, Math.round(11 * frameScale))} />
+          </button>
+        )}
       </div>
     </div>
   );
