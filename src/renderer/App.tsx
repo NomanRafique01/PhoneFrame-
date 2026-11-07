@@ -261,12 +261,16 @@ export const App: React.FC = () => {
   const anyHovered = screens.some((s) => s.isHovered);
   const anyDragging = screens.some((s) => s.isDragging);
   const anyInteracting = screens.some((s) => s.isScreenInteracting);
+  // An armed drag mode is an explicit "grab the frame" mode: the window must
+  // keep receiving mouse input even when the pointer arrived without hover and
+  // the HUD is closed, otherwise the press falls through to the desktop.
+  const anyDragMode = screens.some((s) => s.dragMode);
 
   useEffect(() => {
     window.electronAPI?.setIgnoreMouseEvents?.(
-      !(isFullscreen || anyHovered || anyDragging || anyInteracting || showInspector)
+      !(isFullscreen || anyHovered || anyDragging || anyInteracting || anyDragMode || showInspector)
     );
-  }, [isFullscreen, anyHovered, anyDragging, anyInteracting, showInspector]);
+  }, [isFullscreen, anyHovered, anyDragging, anyInteracting, anyDragMode, showInspector]);
 
   // Dismiss settings panel on outside click
   useEffect(() => {
@@ -438,10 +442,19 @@ export const App: React.FC = () => {
     const pending = dragPendingRef.current;
     if (pending && pending.pointerId === e.pointerId && pending.screenId === screenId) {
       if (Math.hypot(e.clientX - pending.startX, e.clientY - pending.startY) > DRAG_MOVE_TOLERANCE) {
+        // Moving before the hold elapsed is a real drag gesture, not a click.
+        // Promote it instead of dropping it so press-and-drag always moves the
+        // frame, regardless of how fast the pointer leaves the press point.
         clearDragHold();
-        if (e.currentTarget.hasPointerCapture(e.pointerId)) {
-          e.currentTarget.releasePointerCapture(e.pointerId);
-        }
+        dragRef.current = {
+          screenId,
+          pointerId: e.pointerId,
+          lastX: e.clientX,
+          lastY: e.clientY,
+        };
+        setScreens((prev) =>
+          prev.map((s) => (s.id === screenId ? { ...s, isDragging: true } : s))
+        );
         return;
       }
       pending.lastX = e.clientX;

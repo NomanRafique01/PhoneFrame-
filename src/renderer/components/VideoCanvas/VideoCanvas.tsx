@@ -109,6 +109,10 @@ export const VideoCanvas: React.FC<VideoCanvasProps> = ({
   const lastPointRef = useRef<FramePoint | null>(null);
   const pressedKeysRef = useRef<Map<string, number>>(new Map());
   const wheelHandlerRef = useRef<(event: WheelEvent) => void>(() => {});
+  // The parent re-creates this callback on every render; keep the latest one in
+  // a ref so the release effects below do not re-run on every parent render.
+  const onInteractionChangeRef = useRef(onInteractionChange);
+  onInteractionChangeRef.current = onInteractionChange;
 
   const paintPendingFrame = () => {
     paintRafRef.current = null;
@@ -545,16 +549,16 @@ export const VideoCanvas: React.FC<VideoCanvasProps> = ({
     pressedKeysRef.current.clear();
     activePointerRef.current = null;
     lastPointRef.current = null;
-    onInteractionChange?.(false);
-  }, [isStreaming, dragMode, onInteractionChange]);
+    onInteractionChangeRef.current?.(false);
+  }, [isStreaming, dragMode]);
 
   // The component unmounts when the stream ends (the setup screen replaces
   // it), so release the window's interaction hold here as well.
   useEffect(() => {
     return () => {
-      onInteractionChange?.(false);
+      onInteractionChangeRef.current?.(false);
     };
-  }, [onInteractionChange]);
+  }, []);
 
   return (
     <div

@@ -136,17 +136,25 @@ export const DPad: React.FC<DPadProps> = ({ getScrollTarget, onDragStateChange }
     return () => observer.disconnect();
   }, []);
 
+  // The parent re-creates this callback on every render, so hold the latest one
+  // in a ref. Depending on the callback directly would re-run this cleanup after
+  // every parent render and cancel an in-progress pad drag.
+  const onDragStateChangeRef = useRef(onDragStateChange);
+  useEffect(() => {
+    onDragStateChangeRef.current = onDragStateChange;
+  }, [onDragStateChange]);
+
   // Release the interaction latch and keep the last pad position if the pad
   // disappears mid-drag (stream ends, HUD toggles it off).
   useEffect(() => {
     return () => {
       if (dragRef.current) {
         dragRef.current = null;
-        onDragStateChange?.(false);
+        onDragStateChangeRef.current?.(false);
       }
       if (centerRef.current) saveCenter(centerRef.current);
     };
-  }, [onDragStateChange]);
+  }, []);
 
   // The pad scales with the frame and keeps its default spot above Android's
   // navigation bar.
