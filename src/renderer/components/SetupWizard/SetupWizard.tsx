@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import type { AdbStatusPayload, AdbDeviceInfo } from "../../types/electron";
 import {
   UsbIcon,
@@ -44,6 +44,7 @@ interface SetupWizardProps {
   onDeviceNameChange?: (name: string) => void;
   onNameAssigned?: () => void;
   onSelectMode?: (mode: ConnectionMode) => void;
+  onSerialAssigned?: (serial: string) => void;
   onComplete?: (serial?: string) => void;
   onDismiss?: () => void;
   occupiedSerials?: string[];
@@ -59,11 +60,16 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
   onDeviceNameChange,
   onNameAssigned,
   onSelectMode,
+  onSerialAssigned,
   onComplete,
   onDismiss,
   occupiedSerials = [],
 }) => {
   const [mode, setMode] = useState<ConnectionMode | null>(initialMode);
+  const [internalNotice, setInternalNotice] = useState<string | null>(null);
+  const activeNotice = notice || internalNotice;
+  const lastSwitchedAtRef = useRef<number>(0);
+
   const [isNamingStep, setIsNamingStep] = useState(false);
   // Each time user enters naming step, input starts fresh and empty
   const [customDeviceName, setCustomDeviceName] = useState<string>("");
@@ -78,6 +84,18 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
   const [switchResult, setSwitchResult] = useState<{ ip?: string; serial?: string } | null>(null);
   const [connectionFeedback, setConnectionFeedback] = useState<string | null>(null);
   const [manualIp, setManualIp] = useState<string>("");
+
+  // Sync mode whenever initialMode updates (e.g. resets to null on stream stop)
+  useEffect(() => {
+    setMode(initialMode ?? null);
+    if (initialMode === null) {
+      setCurrentStepIndex(0);
+      setDiscoveredDevice(null);
+      setHasSwitched(false);
+      setSwitchResult(null);
+      setConnectionFeedback(null);
+    }
+  }, [initialMode]);
 
   // Sync with incoming adbStatus: if a device is online/authorized, detect it
   useEffect(() => {
@@ -107,6 +125,10 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
         : discoveredDevice.serial;
 
       if (isWirelessMode && targetSerial) {
+        // Grant a 4s grace period after switching so adb device poll can register before checking offline
+        if (Date.now() - lastSwitchedAtRef.current < 4000) {
+          return;
+        }
         const stillOnline = adbStatus?.devices?.some(
           (d) => d.serial === targetSerial && d.state === "device"
         );
@@ -441,6 +463,7 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
       const res = await window.electronAPI.enableWireless(activeDevice.serial);
       if (res.success && res.ip) {
         const target = `${res.ip}:5555`;
+        lastSwitchedAtRef.current = Date.now();
         setHasSwitched(true);
         setSwitchResult({ ip: res.ip, serial: target });
 
@@ -454,7 +477,10 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
           height: activeDevice.height,
         };
         setDiscoveredDevice(wifiDevice);
+        onSerialAssigned?.(target);
 
+        setInternalNotice("✓ Switched to Wi-Fi mode! You can now unplug the USB cable.");
+        setTimeout(() => setInternalNotice(null), 6000);
         setConnectionFeedback(`✓ Connected to ${target}! You can now unplug the USB cable.`);
         setCurrentStepIndex(3); // Ready in Wi-Fi mode
       } else {
@@ -465,6 +491,92 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
     } finally {
       setIsConnecting(false);
     }
+  };
+
+  const renderNoticeBanner = () => {
+    if (!activeNotice) return null;
+    const isSuccess = activeNotice.startsWith("✓");
+    return (
+      <div
+        className="phone-notice"
+        style={{
+          position: "absolute",
+          top: "var(--space-2)",
+          left: "var(--space-3)",
+          right: "var(--space-3)",
+          zIndex: 50,
+          display: "flex",
+          alignItems: "center",
+          gap: "10px",
+          padding: "8px 12px",
+          borderRadius: "var(--radius-md)",
+          border: isSuccess ? "1px solid rgba(52, 211, 153, 0.4)" : "1px solid rgba(255, 255, 255, 0.08)",
+          backgroundColor: "rgba(17, 33, 45, 0.96)",
+          backdropFilter: "blur(10px)",
+          boxShadow: "0 10px 28px -8px rgba(0, 0, 0, 0.7)",
+          pointerEvents: "none",
+        }}
+      >
+        <span
+          style={{
+            width: "26px",
+            height: "26px",
+            borderRadius: "50%",
+            backgroundColor: isSuccess ? "rgba(52, 211, 153, 0.16)" : "rgba(224, 176, 74, 0.14)",
+            color: isSuccess ? "var(--success)" : "var(--warning)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            flexShrink: 0,
+          }}
+        >
+          {isSuccess ? <CheckIcon size={14} /> : mode === "wifi" ? <WifiIcon size={14} /> : <UsbIcon size={14} />}
+        </span>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: "flex", alignItems: "baseline", gap: "6px" }}>
+            <span
+              style={{
+                fontSize: "11px",
+                fontWeight: 600,
+                color: isSuccess ? "var(--success)" : "var(--mist-200)",
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+              }}
+            >
+              {activeNotice.split(". ")[0]}
+            </span>
+            <span
+              className="mono-data"
+              style={{
+                marginLeft: "auto",
+                fontSize: "9px",
+                color: "var(--mist-400)",
+                opacity: 0.6,
+                flexShrink: 0,
+              }}
+            >
+              now
+            </span>
+          </div>
+          {activeNotice.includes(". ") && (
+            <div
+              style={{
+                fontSize: "10px",
+                color: "var(--mist-400)",
+                lineHeight: 1.35,
+                marginTop: "1px",
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+              }}
+            >
+              {activeNotice.slice(activeNotice.indexOf(". ") + 2)}
+            </div>
+          )}
+        </div>
+      </div>
+    );
   };
 
   // If no connection mode is chosen yet, show the centered two-option selection screen
@@ -1036,6 +1148,8 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
               : "Waiting for connection..."}
           </span>
         </div>
+
+        {renderNoticeBanner()}
       </div>
     );
   }
@@ -2008,87 +2122,7 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
       </div>
 
       {/* In-screen heads-up notice: drops from the top like a real phone banner */}
-      {notice && (
-        <div
-          className="phone-notice"
-          style={{
-            position: "absolute",
-            top: "var(--space-2)",
-            left: "var(--space-3)",
-            right: "var(--space-3)",
-            zIndex: 20,
-            display: "flex",
-            alignItems: "center",
-            gap: "10px",
-            padding: "8px 12px",
-            borderRadius: "var(--radius-md)",
-            border: "1px solid rgba(255, 255, 255, 0.08)",
-            backgroundColor: "rgba(17, 33, 45, 0.96)",
-            backdropFilter: "blur(10px)",
-            boxShadow: "0 10px 28px -8px rgba(0, 0, 0, 0.7)",
-            pointerEvents: "none",
-          }}
-        >
-          <span
-            style={{
-              width: "26px",
-              height: "26px",
-              borderRadius: "50%",
-              backgroundColor: "rgba(224, 176, 74, 0.14)",
-              color: "var(--warning)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              flexShrink: 0,
-            }}
-          >
-            {mode === "wifi" ? <WifiIcon size={14} /> : <UsbIcon size={14} />}
-          </span>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ display: "flex", alignItems: "baseline", gap: "6px" }}>
-              <span
-                style={{
-                  fontSize: "11px",
-                  fontWeight: 600,
-                  color: "var(--mist-200)",
-                  whiteSpace: "nowrap",
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                }}
-              >
-                {notice.split(". ")[0]}
-              </span>
-              <span
-                className="mono-data"
-                style={{
-                  marginLeft: "auto",
-                  fontSize: "9px",
-                  color: "var(--mist-400)",
-                  opacity: 0.6,
-                  flexShrink: 0,
-                }}
-              >
-                now
-              </span>
-            </div>
-            {notice.includes(". ") && (
-              <div
-                style={{
-                  fontSize: "10px",
-                  color: "var(--mist-400)",
-                  lineHeight: 1.35,
-                  marginTop: "1px",
-                  whiteSpace: "nowrap",
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                }}
-              >
-                {notice.slice(notice.indexOf(". ") + 2)}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
+      {renderNoticeBanner()}
     </div>
   );
 };

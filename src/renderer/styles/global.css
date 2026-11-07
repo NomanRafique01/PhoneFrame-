@@ -129,8 +129,13 @@ button:focus-visible {
   position: absolute;
   display: grid;
   pointer-events: none;
+  touch-action: none;
   transform-origin: bottom left;
   animation: dpad-enter 180ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.dpad-cluster--dragging {
+  cursor: grabbing !important;
 }
 
 @keyframes dpad-enter {

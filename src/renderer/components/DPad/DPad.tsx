@@ -193,58 +193,122 @@ export const DPad: React.FC<DPadProps> = ({ getScrollTarget, onDragStateChange }
     if (!event.repeat) button.fire(getScrollTarget());
   };
 
-  const handleHubPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (event.button !== 0 || dragRef.current) return;
-    event.preventDefault();
-    event.stopPropagation();
+  const pendingButtonRef = useRef<{
+    button: PadButton;
+    pointerId: number;
+    startX: number;
+    startY: number;
+    hasDragged: boolean;
+  } | null>(null);
 
+  const startPadDrag = (pointerId: number, clientX: number, clientY: number, targetEl: Element) => {
+    if (dragRef.current) return;
     const bounds = boundsRef.current;
     dragRef.current = {
-      pointerId: event.pointerId,
-      startClientX: event.clientX,
-      startClientY: event.clientY,
+      pointerId,
+      startClientX: clientX,
+      startClientY: clientY,
       startCenterX: centerPxRef.current.x,
       startCenterY: centerPxRef.current.y,
       width: bounds.width,
       height: bounds.height,
       clusterSize: bounds.clusterSize,
     };
-    event.currentTarget.setPointerCapture(event.pointerId);
+    try {
+      targetEl.setPointerCapture(pointerId);
+    } catch {}
     setIsDragging(true);
     onDragStateChange?.(true);
   };
 
-  const handleHubPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+  const handleButtonPointerDown = (
+    event: React.PointerEvent<HTMLButtonElement>,
+    button: PadButton
+  ) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+
+    pendingButtonRef.current = {
+      button,
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      hasDragged: false,
+    };
+    startPadDrag(event.pointerId, event.clientX, event.clientY, event.currentTarget);
+  };
+
+  const handleHubPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0 || dragRef.current) return;
+    event.preventDefault();
+    event.stopPropagation();
+    startPadDrag(event.pointerId, event.clientX, event.clientY, event.currentTarget);
+  };
+
+  const handlePointerMove = (event: React.PointerEvent) => {
     const drag = dragRef.current;
     if (!drag || drag.pointerId !== event.pointerId) return;
     event.stopPropagation();
+
+    // Check 4px drag threshold if initiated from a button
+    if (pendingButtonRef.current && pendingButtonRef.current.pointerId === event.pointerId) {
+      const dist = Math.hypot(
+        event.clientX - pendingButtonRef.current.startX,
+        event.clientY - pendingButtonRef.current.startY
+      );
+      if (dist > 4) {
+        pendingButtonRef.current.hasDragged = true;
+      }
+    }
+
     if (drag.width <= 0 || drag.height <= 0) return;
 
-    const limit = drag.clusterSize / 2 + EDGE_MARGIN;
+    // Generous boundaries: allow parking anywhere across the visible phone screen
+    const halfCluster = drag.clusterSize / 2;
     const nextX = clamp(
       drag.startCenterX + (event.clientX - drag.startClientX),
-      limit,
-      Math.max(limit, drag.width - limit)
+      halfCluster,
+      Math.max(halfCluster, drag.width - halfCluster)
     );
     const nextY = clamp(
       drag.startCenterY + (event.clientY - drag.startClientY),
-      limit,
-      Math.max(limit, drag.height - limit)
+      halfCluster,
+      Math.max(halfCluster, drag.height - halfCluster)
     );
     const next = { x: nextX / drag.width, y: nextY / drag.height };
     centerRef.current = next;
     setCenter(next);
   };
 
-  const handleHubPointerEnd = (event: React.PointerEvent<HTMLDivElement>) => {
+  const handleButtonPointerUp = (
+    event: React.PointerEvent<HTMLButtonElement>,
+    button: PadButton
+  ) => {
+    event.stopPropagation();
+    const pending = pendingButtonRef.current;
+    if (pending && pending.pointerId === event.pointerId) {
+      if (!pending.hasDragged) {
+        // Quick tap without dragging: execute scroll
+        button.fire(getScrollTarget());
+      }
+      pendingButtonRef.current = null;
+    }
+    handlePointerEnd(event);
+  };
+
+  const handlePointerEnd = (event: React.PointerEvent) => {
     const drag = dragRef.current;
     if (!drag || drag.pointerId !== event.pointerId) return;
     event.stopPropagation();
 
     dragRef.current = null;
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId);
-    }
+    pendingButtonRef.current = null;
+    try {
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      }
+    } catch {}
     setIsDragging(false);
     onDragStateChange?.(false);
     if (centerRef.current) saveCenter(centerRef.current);
@@ -259,13 +323,14 @@ export const DPad: React.FC<DPadProps> = ({ getScrollTarget, onDragStateChange }
     >
       {ready && (
         <div
-          className="dpad-cluster"
+          className={`dpad-cluster${isDragging ? " dpad-cluster--dragging" : ""}`}
           style={{
             left: `${padLeft}px`,
             top: `${padTop}px`,
             gridTemplateColumns: `repeat(3, ${keySize}px)`,
             gridTemplateRows: `repeat(3, ${keySize}px)`,
             gap: `${gap}px`,
+            cursor: isDragging ? "grabbing" : "grab",
           }}
         >
           {PAD_BUTTONS.map((button) => (
@@ -280,15 +345,19 @@ export const DPad: React.FC<DPadProps> = ({ getScrollTarget, onDragStateChange }
                 gridRow: button.row,
                 gridColumn: button.column,
                 borderRadius: `${radius}px`,
+                cursor: isDragging ? "grabbing" : "pointer",
               }}
-              onPointerDown={(event) => event.stopPropagation()}
+              onPointerDown={(event) => handleButtonPointerDown(event, button)}
+              onPointerMove={handlePointerMove}
+              onPointerUp={(event) => handleButtonPointerUp(event, button)}
+              onPointerCancel={handlePointerEnd}
+              onLostPointerCapture={handlePointerEnd}
               onMouseDown={(event) => event.preventDefault()}
               onContextMenu={(event) => {
                 event.preventDefault();
                 event.stopPropagation();
               }}
               onDragStart={(event) => event.preventDefault()}
-              onClick={(event) => handleClick(event, button)}
               onKeyDown={(event) => handleKeyDown(event, button)}
             >
               <ArrowGlyph size={iconSize} rotation={button.rotation} />
@@ -301,10 +370,10 @@ export const DPad: React.FC<DPadProps> = ({ getScrollTarget, onDragStateChange }
             title="Drag to move the scroll pad"
             style={{ gridRow: 2, gridColumn: 2 }}
             onPointerDown={handleHubPointerDown}
-            onPointerMove={handleHubPointerMove}
-            onPointerUp={handleHubPointerEnd}
-            onPointerCancel={handleHubPointerEnd}
-            onLostPointerCapture={handleHubPointerEnd}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerEnd}
+            onPointerCancel={handlePointerEnd}
+            onLostPointerCapture={handlePointerEnd}
             onContextMenu={(event) => {
               event.preventDefault();
               event.stopPropagation();

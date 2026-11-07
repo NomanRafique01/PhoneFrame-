@@ -7,7 +7,7 @@ import {
 import { FloatingHUD, DeviceNameHUD } from "../HUD";
 import { SetupWizard } from "../SetupWizard";
 import { VideoCanvas } from "../VideoCanvas/VideoCanvas";
-import { ChevronRightIcon, SmartphoneIcon, WifiIcon } from "../icons";
+import { ChevronRightIcon, SmartphoneIcon, WifiIcon, CheckIcon } from "../icons";
 import { usePhoneAudio } from "../../audio/usePhoneAudio";
 import type { AdbStatusPayload, MirrorState } from "../../types/electron";
 
@@ -122,6 +122,7 @@ export const PhoneScreenItem: React.FC<PhoneScreenItemProps> = ({
   const prevMirrorStateRef = useRef<MirrorState>("stopped");
   const orientationTimerRef = useRef<number | null>(null);
   const noticeTimerRef = useRef<number | null>(null);
+  const isSwitchingToWifiRef = useRef(false);
   const pendingOrientationRef = useRef<{
     orientation: "portrait" | "landscape";
     aspectRatio: { width: number; height: number };
@@ -150,7 +151,12 @@ export const PhoneScreenItem: React.FC<PhoneScreenItemProps> = ({
       setMirrorState(payload.state);
 
       if (wasActive && isEnded) {
+        if (isSwitchingToWifiRef.current) {
+          // Intentional switch from USB to Wi-Fi: do not trigger false "Connection failed"
+          return;
+        }
         setIsWizardActive(true);
+        setConnectionMode(null);
         onSerialReleased?.();
         showSessionNotice(payload.state === "error" ? "Connection failed" : "Stream stopped");
       }
@@ -219,6 +225,7 @@ export const PhoneScreenItem: React.FC<PhoneScreenItemProps> = ({
     await window.electronAPI.stopMirror(screenId);
     setMirrorState("stopped");
     setIsWizardActive(true);
+    setConnectionMode(null);
     onSerialReleased?.();
   };
 
@@ -239,6 +246,8 @@ export const PhoneScreenItem: React.FC<PhoneScreenItemProps> = ({
         const wifiSerial = `${res.ip}:5555`;
         setWifiMsg(`Connected to ${wifiSerial}! Switching stream…`);
 
+        isSwitchingToWifiRef.current = true;
+
         if (mirrorState === "running" || mirrorState === "starting") {
           try {
             await window.electronAPI.stopMirror(screenId);
@@ -249,15 +258,34 @@ export const PhoneScreenItem: React.FC<PhoneScreenItemProps> = ({
         setIsWizardActive(false);
         onSerialAssigned?.(wifiSerial);
         try {
-          await window.electronAPI.startMirror(wifiSerial, screenId);
-          setWifiMsg("✓ Streaming over Wi-Fi! You can now unplug the USB cable.");
+          const ok = await window.electronAPI.startMirror(wifiSerial, screenId);
+          if (ok) {
+            setTimeout(() => {
+              isSwitchingToWifiRef.current = false;
+            }, 1200);
+            setWifiMsg("✓ Streaming over Wi-Fi! You can now unplug the USB cable.");
+            showSessionNotice("✓ Streaming over Wi-Fi! You can now unplug the USB cable.");
+          } else {
+            isSwitchingToWifiRef.current = false;
+            setMirrorState("error");
+            setIsWizardActive(true);
+            setConnectionMode(null);
+            onSerialReleased?.();
+            showSessionNotice("Connection failed: Could not start Wi-Fi stream.");
+          }
         } catch (startErr: any) {
-          setWifiMsg(`Connected to Wi-Fi (${wifiSerial}), but failed to start stream.`);
+          isSwitchingToWifiRef.current = false;
+          setMirrorState("error");
+          setIsWizardActive(true);
+          setConnectionMode(null);
+          onSerialReleased?.();
+          showSessionNotice("Connection failed: " + (startErr?.message || "Failed to start Wi-Fi stream"));
         }
       } else {
         setWifiMsg(`✕ ${res.error || "Failed to switch to Wi-Fi"}`);
       }
     } catch (e: any) {
+      isSwitchingToWifiRef.current = false;
       setWifiMsg(`✕ ${e?.message || "Error switching to Wi-Fi"}`);
     } finally {
       setWifiBusy(false);
@@ -280,6 +308,7 @@ export const PhoneScreenItem: React.FC<PhoneScreenItemProps> = ({
         await window.electronAPI.disconnectWireless(serial);
       }
       setIsWizardActive(true);
+      setConnectionMode(null);
       onSerialReleased?.();
       setWifiMsg("Wi-Fi disconnected");
       showSessionNotice("Wi-Fi stream disconnected.");
@@ -542,6 +571,7 @@ export const PhoneScreenItem: React.FC<PhoneScreenItemProps> = ({
                 onDeviceNameChange={onUpdateName}
                 onNameAssigned={onNameAssigned}
                 onSelectMode={onUpdateConnectionMode}
+                onSerialAssigned={onSerialAssigned}
                 onComplete={handleStartMirror}
                 onDismiss={() => setIsWizardActive(false)}
               />
@@ -558,7 +588,65 @@ export const PhoneScreenItem: React.FC<PhoneScreenItemProps> = ({
                   onInteractionChange={onInteractionChange}
                   onStreamSizeChange={scheduleStreamOrientation}
                 />
-                {wifiMsg && (
+                {sessionNotice && (
+                  <div
+                    className="phone-notice"
+                    style={{
+                      position: "absolute",
+                      top: "var(--space-2)",
+                      left: "var(--space-3)",
+                      right: "var(--space-3)",
+                      zIndex: 80,
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "10px",
+                      padding: "8px 12px",
+                      borderRadius: "var(--radius-md)",
+                      border: sessionNotice.startsWith("✓")
+                        ? "1px solid rgba(52, 211, 153, 0.4)"
+                        : "1px solid rgba(255, 255, 255, 0.08)",
+                      backgroundColor: "rgba(17, 33, 45, 0.96)",
+                      backdropFilter: "blur(10px)",
+                      boxShadow: "0 10px 28px -8px rgba(0, 0, 0, 0.7)",
+                      pointerEvents: "none",
+                    }}
+                  >
+                    <span
+                      style={{
+                        width: "26px",
+                        height: "26px",
+                        borderRadius: "50%",
+                        backgroundColor: sessionNotice.startsWith("✓")
+                          ? "rgba(52, 211, 153, 0.16)"
+                          : "rgba(224, 176, 74, 0.14)",
+                        color: sessionNotice.startsWith("✓") ? "var(--success)" : "var(--warning)",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        flexShrink: 0,
+                      }}
+                    >
+                      {sessionNotice.startsWith("✓") ? (
+                        <CheckIcon size={14} />
+                      ) : (
+                        <WifiIcon size={14} />
+                      )}
+                    </span>
+                    <span
+                      style={{
+                        fontSize: "11px",
+                        fontWeight: 600,
+                        color: sessionNotice.startsWith("✓") ? "var(--success)" : "var(--mist-100)",
+                        overflow: "hidden",
+                        whiteSpace: "nowrap",
+                        textOverflow: "ellipsis",
+                      }}
+                    >
+                      {sessionNotice}
+                    </span>
+                  </div>
+                )}
+                {wifiMsg && !sessionNotice && (
                   <div
                     style={{
                       position: "absolute",
