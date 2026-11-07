@@ -67,6 +67,7 @@
       "shortcutName": "PhoneFrame",
       "installerIcon": "assets/phoneframe-icon.ico",
       "uninstallerIcon": "assets/phoneframe-icon.ico",
+      "deleteAppDataOnUninstall": true,
       "include": "scripts/installer.nsh"
     }
   }
