@@ -323,45 +323,16 @@ export const App: React.FC = () => {
           return;
         }
 
-        // Any stream termination — manual stop, unplug, scrcpy crash — returns
-        // to the connection screen. ADB detection keeps running underneath.
+        // Any stream termination — manual stop, unplug, scrcpy crash — immediately returns
+        // to the connection screen with zero delay or blink.
         if (wasActive && isEnded) {
-          // Check if there is an authorized wireless device available to auto-reconnect
-          // (e.g. when USB cable is unplugged while streaming)
-          const currentStatus = lastAdbStatusRef.current;
-          const wirelessDev = currentStatus.devices.find(
-            (d) =>
-              d.state === "device" &&
-              (d.isWireless || d.serial.includes(":") || /^\d+\.\d+\.\d+\.\d+/.test(d.serial))
-          );
-
-          if (wirelessDev) {
-            console.log(
-              "[PhoneFrame] Stream stopped, but wireless device is active:",
-              wirelessDev.serial,
-              "- auto-reconnecting stream..."
-            );
-            showSessionNotice("USB disconnected. Reconnecting via Wi-Fi…");
-            setTimeout(async () => {
-              if (!window.electronAPI) return;
-              setIsWizardActive(false);
-              try {
-                await window.electronAPI.startMirror(wirelessDev.serial);
-              } catch (e) {
-                console.error("[PhoneFrame] Auto-reconnect to Wi-Fi failed:", e);
-                setIsWizardActive(true);
-                showSessionNotice("Could not connect to phone over Wi-Fi.");
-              }
-            }, 1000);
-            return;
-          }
-
           setIsWizardActive(true);
+          const currentStatus = lastAdbStatusRef.current;
           const stillConnected = currentStatus.state === "device";
           showSessionNotice(
             payload.state === "error" || !stillConnected
-              ? "Phone disconnected. Waiting for a new connection…"
-              : "Stream stopped. Device is still connected."
+              ? "Phone disconnected."
+              : "Stream stopped."
           );
         }
       });
@@ -1072,7 +1043,7 @@ export const App: React.FC = () => {
             )}
 
             {/* Main Screen Content: Setup Wizard vs Video Canvas vs Standby */}
-            <div style={{ flex: 1, position: "relative", overflow: "hidden" }}>
+            <div style={{ flex: 1, position: "relative", overflow: "hidden", backgroundColor: "#050B0E" }}>
               {isWizardActive ? (
                 <SetupWizard
                   adbStatus={adbStatus}
@@ -1094,55 +1065,12 @@ export const App: React.FC = () => {
                     onInteractionChange={setIsScreenInteracting}
                     onStreamSizeChange={scheduleStreamOrientation}
                   />
-                  {/* Wi-Fi switch pill — only while streaming over USB in non-fullscreen */}
-                  {isStreaming && !isFullscreen && activeDevice && !activeDevice.isWireless && (
-                    <button
-                      type="button"
-                      className="app-no-drag"
-                      onPointerDown={(e) => e.stopPropagation()}
-                      onPointerUp={(e) => e.stopPropagation()}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        if (!wifiBusy) handleSwitchToWifi();
-                      }}
-                      title="1-Click: Switch this USB stream to Wi-Fi mode"
-                      aria-label="Switch to Wi-Fi mode"
-                      style={{
-                        position: "absolute",
-                        bottom: "12px",
-                        left: "50%",
-                        transform: "translateX(-50%)",
-                        zIndex: 60,
-                        display: "flex",
-                        alignItems: "center",
-                        gap: "6px",
-                        padding: "6px 14px",
-                        borderRadius: "20px",
-                        backgroundColor: "rgba(6, 20, 27, 0.94)",
-                        border: "1px solid rgba(138, 230, 196, 0.55)",
-                        boxShadow: "0 4px 14px rgba(0, 0, 0, 0.6), 0 0 12px rgba(138, 230, 196, 0.25)",
-                        backdropFilter: "blur(8px)",
-                        fontSize: "11px",
-                        color: "var(--accent)",
-                        fontWeight: 600,
-                        whiteSpace: "nowrap",
-                        cursor: wifiBusy ? "not-allowed" : "pointer",
-                        opacity: wifiBusy ? 0.75 : 1,
-                        pointerEvents: "auto",
-                        userSelect: "none",
-                        transition: "all 0.15s ease",
-                      }}
-                    >
-                      <WifiIcon size={12} />
-                      <span>{wifiBusy ? "Switching to Wi-Fi…" : "⚡ Switch to Wi-Fi"}</span>
-                    </button>
-                  )}
                   {/* Feedback message during or after switching */}
                   {wifiMsg && (
                     <div
                       style={{
                         position: "absolute",
-                        bottom: isStreaming && activeDevice && !activeDevice.isWireless ? "46px" : "16px",
+                        bottom: "16px",
                         left: "50%",
                         transform: "translateX(-50%)",
                         zIndex: 60,
@@ -1182,7 +1110,7 @@ export const App: React.FC = () => {
                     padding: "var(--space-4)",
                     textAlign: "center",
                     gap: "var(--space-3)",
-                    background: "linear-gradient(180deg, #091319 0%, #03080c 100%)",
+                    background: "#050B0E",
                   }}
                 >
                   <div

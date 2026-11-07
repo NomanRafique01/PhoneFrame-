@@ -46,7 +46,7 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
   onComplete,
   onDismiss,
 }) => {
-  const [mode, setMode] = useState<ConnectionMode>("usb");
+  const [mode, setMode] = useState<ConnectionMode | null>(null);
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
   const [tapCounter, setTapCounter] = useState(0);
 
@@ -57,20 +57,31 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
   const [switchResult, setSwitchResult] = useState<{ ip?: string; serial?: string } | null>(null);
   const [connectionFeedback, setConnectionFeedback] = useState<string | null>(null);
 
-  // Automatically react to real hardware state changes from ADB
-  useEffect(() => {
-    if (!adbStatus) return;
+  // Track previous ADB state so we only auto-advance when hardware state transitions,
+  // allowing the user to freely click Back to previous steps without being trapped on Step 5.
+  const prevAdbStateRef = React.useRef(adbStatus?.state);
 
-    if (adbStatus.state === "unauthorized") {
-      if (mode === "usb") {
+  useEffect(() => {
+    if (!adbStatus || mode === null) return;
+    const prevState = prevAdbStateRef.current;
+    prevAdbStateRef.current = adbStatus.state;
+
+    // Only react when ADB state transitions (e.g. unauthorized -> device, or no-device -> device)
+    if (prevState !== adbStatus.state) {
+      if (adbStatus.state === "unauthorized" && mode === "usb") {
         setCurrentStepIndex(3); // Step 4: RSA Auth
-      }
-    } else if (adbStatus.state === "device") {
-      if (mode === "usb") {
-        setCurrentStepIndex(4); // Ready
-      } else if (adbStatus.activeDevice?.isWireless) {
-        setHasSwitched(true);
-        setSwitchResult({ serial: adbStatus.activeDevice.serial });
+      } else if (adbStatus.state === "device") {
+        if (mode === "usb") {
+          setCurrentStepIndex(4); // Step 5: Ready
+        } else if (adbStatus.activeDevice?.isWireless) {
+          setHasSwitched(true);
+          setSwitchResult({ serial: adbStatus.activeDevice.serial });
+          setCurrentStepIndex(3); // Ready in Wi-Fi mode
+        }
+      } else if (adbStatus.state === "no-device") {
+        // Smoothly return directly to the mode selection screen on disconnect
+        setMode(null);
+        setCurrentStepIndex(0);
       }
     }
   }, [adbStatus?.state, adbStatus?.activeDevice?.isWireless, mode]);
@@ -118,13 +129,25 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
     },
     {
       id: "ready",
-      badge: "READY",
-      title: activeDevice?.model ? `${activeDevice.model} Connected` : "Device Connected & Verified",
-      instruction: "Your phone is connected, authorized, and ready for video streaming.",
-      detail: activeDevice
-        ? `Serial: ${activeDevice.serial} • Resolution: ${activeDevice.width ? `${activeDevice.width}×${activeDevice.height}` : "Auto"}`
-        : "The mirror engine will capture the display at native resolution.",
-      statusText: "Status: Device Authorized (Online)",
+      badge: isDeviceOnline && !activeDevice?.isWireless ? "READY" : "STEP 5",
+      title:
+        isDeviceOnline && !activeDevice?.isWireless
+          ? (activeDevice?.model ? `${activeDevice.model} Connected` : "Device Connected & Verified")
+          : "Search & Connect Phone",
+      instruction:
+        isDeviceOnline && !activeDevice?.isWireless
+          ? "Your phone is connected, authorized, and ready for video streaming."
+          : "Connect phone with USB data cable and tap 'Search Phone'.",
+      detail:
+        isDeviceOnline && !activeDevice?.isWireless
+          ? (activeDevice
+              ? `Serial: ${activeDevice.serial} • Resolution: ${activeDevice.width ? `${activeDevice.width}×${activeDevice.height}` : "Auto"}`
+              : "The mirror engine will capture the display at native resolution.")
+          : "Make sure USB debugging is authorized on your phone screen.",
+      statusText:
+        isDeviceOnline && !activeDevice?.isWireless
+          ? "Status: Device Authorized (Online)"
+          : "Waiting for USB device detection...",
     },
   ];
 
@@ -170,11 +193,19 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
     },
   ];
 
-  const steps = mode === "usb" ? usbSteps : wifiSteps;
+  const steps = mode === "wifi" ? wifiSteps : usbSteps;
   const currentStep = steps[Math.min(currentStepIndex, steps.length - 1)];
 
+  const isReady =
+    (mode === "usb" && currentStep?.id === "ready" && isDeviceOnline && !activeDevice?.isWireless) ||
+    (mode === "wifi" && (currentStep?.id === "ready" || hasSwitched || Boolean(activeDevice?.isWireless)));
+
   const handleNext = () => {
-    if (currentStepIndex < steps.length - 1) {
+    if (isReady) {
+      onComplete?.();
+    } else if (mode === "usb" && currentStep?.id === "ready" && (!isDeviceOnline || activeDevice?.isWireless)) {
+      handleSearchPhone();
+    } else if (currentStepIndex < steps.length - 1) {
       setCurrentStepIndex(currentStepIndex + 1);
     } else {
       onComplete?.();
@@ -184,6 +215,8 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
   const handlePrev = () => {
     if (currentStepIndex > 0) {
       setCurrentStepIndex(currentStepIndex - 1);
+    } else {
+      setMode(null);
     }
   };
 
@@ -206,10 +239,16 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
       await new Promise((r) => setTimeout(r, 600));
       if (status?.state === "device" && status.activeDevice) {
         if (status.activeDevice.isWireless) {
-          setHasSwitched(true);
-          setSwitchResult({ serial: status.activeDevice.serial });
+          if (mode === "wifi") {
+            setHasSwitched(true);
+            setSwitchResult({ serial: status.activeDevice.serial });
+            setCurrentStepIndex(3); // Ready in Wi-Fi mode
+          }
           setConnectionFeedback(`Wireless device online: ${status.activeDevice.serial}`);
         } else {
+          if (mode === "usb") {
+            setCurrentStepIndex(4); // Ready in USB mode
+          }
           setConnectionFeedback(`Device detected: ${status.activeDevice.model || status.activeDevice.serial}`);
         }
       } else if (status?.state === "unauthorized") {
@@ -235,6 +274,7 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
         setHasSwitched(true);
         setSwitchResult({ ip: res.ip, serial: target });
         setConnectionFeedback(`Connected to ${target}`);
+        setCurrentStepIndex(3); // Ready in Wi-Fi mode
       } else {
         setConnectionFeedback(res.error || "Failed to switch to Wi-Fi mode");
       }
@@ -244,6 +284,252 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
       setIsConnecting(false);
     }
   };
+
+  // If no connection mode is chosen yet, show the centered two-option selection screen
+  if (mode === null) {
+    return (
+      <div
+        className="setup-wizard"
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          height: "100%",
+          width: "100%",
+          backgroundColor: "#050B0E",
+          color: "var(--mist-200)",
+          padding: "var(--space-4)",
+          boxSizing: "border-box",
+          position: "relative",
+          userSelect: "none",
+          overflowY: "auto",
+        }}
+      >
+        {/* Middle of Screen: 2 Options */}
+        <div
+          style={{
+            flex: 1,
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            textAlign: "center",
+            gap: "16px",
+            padding: "0 4px",
+          }}
+        >
+          <div>
+            <h2
+              style={{
+                fontSize: "16px",
+                fontWeight: 700,
+                color: "var(--mist-100)",
+                marginBottom: "4px",
+                letterSpacing: "-0.01em",
+              }}
+            >
+              Select Connection
+            </h2>
+            <p
+              style={{
+                fontSize: "11px",
+                color: "var(--mist-400)",
+                lineHeight: 1.4,
+                maxWidth: "260px",
+                margin: "0 auto",
+              }}
+            >
+              Choose how you want to mirror your Android screen to this computer.
+            </p>
+          </div>
+
+          <div
+            style={{
+              width: "100%",
+              maxWidth: "280px",
+              display: "flex",
+              flexDirection: "column",
+              gap: "10px",
+            }}
+          >
+            {/* Option 1: USB Cable */}
+            <button
+              type="button"
+              onClick={() => {
+                setMode("usb");
+                setCurrentStepIndex(0);
+              }}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "12px",
+                padding: "14px 14px",
+                borderRadius: "var(--radius-md)",
+                backgroundColor: "var(--ink-900)",
+                border: "1px solid var(--border)",
+                cursor: "pointer",
+                textAlign: "left",
+                transition: "all 140ms ease",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.borderColor = "var(--mist-200)";
+                e.currentTarget.style.backgroundColor = "var(--ink-800)";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.borderColor = "var(--border)";
+                e.currentTarget.style.backgroundColor = "var(--ink-900)";
+              }}
+            >
+              <div
+                style={{
+                  width: "38px",
+                  height: "38px",
+                  borderRadius: "50%",
+                  backgroundColor: "var(--ink-950)",
+                  border: "1px solid var(--border)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  color: "var(--mist-200)",
+                  flexShrink: 0,
+                }}
+              >
+                <UsbIcon size={18} />
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <div style={{ fontSize: "12.5px", fontWeight: 700, color: "var(--mist-100)" }}>
+                    USB Cable
+                  </div>
+                  <span
+                    style={{
+                      fontSize: "9px",
+                      fontWeight: 600,
+                      padding: "1px 5px",
+                      borderRadius: "3px",
+                      backgroundColor: "rgba(95, 191, 154, 0.14)",
+                      color: "var(--success)",
+                      border: "1px solid rgba(95, 191, 154, 0.3)",
+                    }}
+                  >
+                    60 FPS
+                  </span>
+                </div>
+                <div style={{ fontSize: "10px", color: "var(--mist-400)", marginTop: "2px", lineHeight: 1.3 }}>
+                  Direct wired cable connection. Ultra-low latency and plug & play.
+                </div>
+              </div>
+            </button>
+
+            {/* Option 2: Wi-Fi Wireless */}
+            <button
+              type="button"
+              onClick={() => {
+                setMode("wifi");
+                setCurrentStepIndex(0);
+              }}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "12px",
+                padding: "14px 14px",
+                borderRadius: "var(--radius-md)",
+                backgroundColor: "var(--ink-900)",
+                border: "1px solid var(--border)",
+                cursor: "pointer",
+                textAlign: "left",
+                transition: "all 140ms ease",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.borderColor = "var(--mist-200)";
+                e.currentTarget.style.backgroundColor = "var(--ink-800)";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.borderColor = "var(--border)";
+                e.currentTarget.style.backgroundColor = "var(--ink-900)";
+              }}
+            >
+              <div
+                style={{
+                  width: "38px",
+                  height: "38px",
+                  borderRadius: "50%",
+                  backgroundColor: "var(--ink-950)",
+                  border: "1px solid var(--border)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  color: "var(--mist-200)",
+                  flexShrink: 0,
+                }}
+              >
+                <WifiIcon size={18} />
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <div style={{ fontSize: "12.5px", fontWeight: 700, color: "var(--mist-100)" }}>
+                    Wi-Fi Wireless
+                  </div>
+                  <span
+                    style={{
+                      fontSize: "9px",
+                      fontWeight: 600,
+                      padding: "1px 5px",
+                      borderRadius: "3px",
+                      backgroundColor: "var(--ink-800)",
+                      color: "var(--mist-300)",
+                      border: "1px solid var(--border)",
+                    }}
+                  >
+                    Untethered
+                  </span>
+                </div>
+                <div style={{ fontSize: "10px", color: "var(--mist-400)", marginTop: "2px", lineHeight: 1.3 }}>
+                  Mirror wirelessly over the same local Wi-Fi router.
+                </div>
+              </div>
+            </button>
+          </div>
+        </div>
+
+        {/* Hardware Status Indicator Footer */}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "8px",
+            padding: "6px 10px",
+            backgroundColor: "var(--ink-950)",
+            borderRadius: "var(--radius-sm)",
+            border: "1px solid var(--border)",
+          }}
+        >
+          <span
+            style={{
+              width: "7px",
+              height: "7px",
+              borderRadius: "50%",
+              backgroundColor: isDeviceOnline ? "var(--success)" : "var(--ink-600)",
+              flexShrink: 0,
+            }}
+          />
+          <span
+            className="mono-data"
+            style={{
+              fontSize: "10.5px",
+              color: isDeviceOnline ? "var(--success)" : "var(--mist-400)",
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+            }}
+          >
+            {isDeviceOnline
+              ? `Hardware Ready: ${activeDevice?.model || activeDevice?.serial}`
+              : "Waiting for mode selection..."}
+          </span>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -313,8 +599,8 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
             padding: "5px 8px",
             borderRadius: "4px",
             backgroundColor: mode === "wifi" ? "var(--ink-800)" : "transparent",
-            color: mode === "wifi" ? "var(--accent)" : "var(--text-muted)",
-            border: mode === "wifi" ? "1px solid rgba(138, 230, 196, 0.3)" : "1px solid transparent",
+            color: mode === "wifi" ? "var(--mist-100)" : "var(--text-muted)",
+            border: mode === "wifi" ? "1px solid var(--border)" : "1px solid transparent",
             fontSize: "11px",
             fontWeight: mode === "wifi" ? 600 : 500,
             cursor: "pointer",
@@ -343,7 +629,7 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
               padding: "2px 6px",
               backgroundColor: "var(--ink-800)",
               borderRadius: "var(--radius-sm)",
-              color: mode === "wifi" ? "var(--accent)" : "var(--mist-400)",
+              color: "var(--mist-300)",
             }}
           >
             {currentStep.badge}
@@ -352,22 +638,6 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
             Step {currentStepIndex + 1} of {steps.length}
           </span>
         </div>
-
-        {onDismiss && (
-          <button
-            onClick={onDismiss}
-            style={{
-              fontSize: "11px",
-              color: "var(--mist-400)",
-              padding: "2px 6px",
-              background: "none",
-              border: "none",
-              cursor: "pointer",
-            }}
-          >
-            Skip
-          </button>
-        )}
       </div>
 
       {/* Progress Dots Bar */}
@@ -390,9 +660,7 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
                 height: "3px",
                 borderRadius: "2px",
                 backgroundColor: isActive
-                  ? mode === "wifi"
-                    ? "var(--accent)"
-                    : "var(--mist-200)"
+                  ? "var(--mist-200)"
                   : isDone
                   ? "var(--ink-600)"
                   : "var(--ink-800)",
@@ -431,7 +699,7 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
                   gap: "12px",
                   padding: "16px",
                   backgroundColor: "rgba(16, 27, 36, 0.85)",
-                  border: "1px solid rgba(138, 230, 196, 0.4)",
+                  border: "1px solid rgba(95, 191, 154, 0.4)",
                   borderRadius: "var(--radius-md)",
                   textAlign: "left",
                 }}
@@ -447,7 +715,7 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
                       flexShrink: 0,
                     }}
                   />
-                  <span style={{ fontSize: "11px", fontWeight: 600, color: "var(--accent)" }}>
+                  <span style={{ fontSize: "11px", fontWeight: 600, color: "var(--success)" }}>
                     Wi-Fi Connection Active
                   </span>
                 </div>
@@ -485,8 +753,8 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
                     gap: "6px",
                     padding: "10px 14px",
                     borderRadius: "4px",
-                    backgroundColor: "var(--accent)",
-                    color: "#06141B",
+                    backgroundColor: "var(--success)",
+                    color: "var(--ink-950)",
                     fontWeight: 700,
                     fontSize: "12px",
                     border: "none",
@@ -520,9 +788,9 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
                       fontWeight: 600,
                       padding: "2px 6px",
                       borderRadius: "3px",
-                      backgroundColor: "rgba(138, 230, 196, 0.1)",
-                      color: "var(--accent)",
-                      border: "1px solid rgba(138, 230, 196, 0.25)",
+                      backgroundColor: "rgba(95, 191, 154, 0.12)",
+                      color: "var(--success)",
+                      border: "1px solid rgba(95, 191, 154, 0.3)",
                     }}
                   >
                     USB Authorized
@@ -549,8 +817,8 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
                     gap: "6px",
                     padding: "10px 14px",
                     borderRadius: "4px",
-                    backgroundColor: "var(--accent)",
-                    color: "#06141B",
+                    backgroundColor: "var(--mist-200)",
+                    color: "var(--ink-950)",
                     fontWeight: 700,
                     fontSize: "12px",
                     border: "none",
@@ -560,28 +828,6 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
                 >
                   <WifiIcon size={14} />
                   <span>{isConnecting ? "Configuring Wi-Fi Mode…" : "Switch to Wi-Fi Mode"}</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={handleSearchPhone}
-                  disabled={isScanning || isConnecting}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    gap: "6px",
-                    padding: "6px 10px",
-                    borderRadius: "4px",
-                    backgroundColor: "transparent",
-                    color: "var(--mist-400)",
-                    fontSize: "10.5px",
-                    border: "1px solid var(--border)",
-                    cursor: isScanning || isConnecting ? "not-allowed" : "pointer",
-                  }}
-                >
-                  <RefreshCwIcon size={12} className={isScanning ? "spin" : undefined} />
-                  <span>{isScanning ? "Scanning Devices…" : "Search Phone Again"}</span>
                 </button>
               </div>
             ) : (
@@ -685,8 +931,6 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
                 color:
                   isDeviceOnline && currentStep.id === "ready"
                     ? "var(--success)"
-                    : mode === "wifi"
-                    ? "var(--accent)"
                     : "var(--mist-200)",
                 marginBottom: "var(--space-3)",
                 boxShadow: "0 8px 24px rgba(0, 0, 0, 0.4)",
@@ -706,72 +950,14 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
                 />
               )}
               {currentStep.id === "ready" && (
-                <CheckIcon size={30} style={{ color: "var(--success)" }} />
+                isDeviceOnline && (mode === "usb" ? !activeDevice?.isWireless : true) ? (
+                  <CheckIcon size={30} style={{ color: "var(--success)" }} />
+                ) : (
+                  <UsbIcon size={30} />
+                )
               )}
             </div>
 
-            {/* Interactive Mock Components for instructions */}
-            {currentStep.id === "developer_options" && (
-              <div
-                style={{
-                  backgroundColor: "var(--ink-950)",
-                  border: "1px solid var(--border)",
-                  borderRadius: "var(--radius-sm)",
-                  padding: "8px 14px",
-                  marginBottom: "var(--space-3)",
-                  cursor: "pointer",
-                }}
-                onClick={handleTapBuildNumber}
-              >
-                <div style={{ fontSize: "10px", color: "var(--text-muted)" }}>About Phone</div>
-                <div
-                  style={{
-                    fontSize: "12px",
-                    fontWeight: 600,
-                    color: "var(--mist-200)",
-                    marginTop: "2px",
-                  }}
-                >
-                  Build number: TP1A.220624.014
-                </div>
-                <div
-                  style={{
-                    fontSize: "10px",
-                    color: tapCounter > 0 ? "var(--warning)" : "var(--text-muted)",
-                    marginTop: "4px",
-                  }}
-                >
-                  {tapCounter >= 7
-                    ? "You are now a developer!"
-                    : tapCounter > 0
-                    ? `Tap ${7 - tapCounter} more times`
-                    : "Click/tap here 7 times to test"}
-                </div>
-              </div>
-            )}
-
-            {currentStep.id === "wifi_network" && (
-              <div
-                style={{
-                  backgroundColor: "var(--ink-950)",
-                  border: "1px solid var(--border)",
-                  borderRadius: "var(--radius-sm)",
-                  padding: "10px 14px",
-                  marginBottom: "var(--space-3)",
-                  fontSize: "11px",
-                  lineHeight: "1.4",
-                  maxWidth: "280px",
-                }}
-              >
-                <div style={{ color: "var(--accent)", fontWeight: 600, marginBottom: "4px" }}>
-                  Same Wi-Fi Router
-                </div>
-                <div style={{ color: "var(--text-muted)", fontSize: "10.5px" }}>
-                  Both this computer and your Android phone must be on the same local Wi-Fi
-                  network so ADB can talk directly to the phone.
-                </div>
-              </div>
-            )}
           </>
         )}
 
@@ -809,6 +995,118 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
             >
               {currentStep.detail}
             </p>
+            {currentStep.id === "developer_options" && (
+              <button
+                type="button"
+                onClick={handleTapBuildNumber}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "7px",
+                  marginTop: "12px",
+                  padding: "5px 12px",
+                  borderRadius: "var(--radius-full)",
+                  backgroundColor: "var(--ink-950)",
+                  border: "1px solid var(--border)",
+                  cursor: "pointer",
+                  fontSize: "10.5px",
+                  color: tapCounter >= 7 ? "var(--success)" : "var(--mist-300)",
+                  transition: "all 140ms ease",
+                }}
+              >
+                <span
+                  style={{
+                    width: "6px",
+                    height: "6px",
+                    borderRadius: "50%",
+                    backgroundColor:
+                      tapCounter >= 7
+                        ? "var(--success)"
+                        : tapCounter > 0
+                        ? "var(--warning)"
+                        : "var(--mist-400)",
+                  }}
+                />
+                <span>
+                  {tapCounter >= 7
+                    ? "Developer mode unlocked!"
+                    : tapCounter > 0
+                    ? `Build number tapped: ${tapCounter}/7`
+                    : "Simulate: Tap here 7 times"}
+                </span>
+              </button>
+            )}
+            {mode === "usb" && currentStep.id === "ready" && (!isDeviceOnline || activeDevice?.isWireless) && (
+              <div style={{ width: "100%", maxWidth: "280px", margin: "14px auto 0 auto" }}>
+                <button
+                  type="button"
+                  onClick={handleSearchPhone}
+                  disabled={isScanning}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: "6px",
+                    width: "100%",
+                    padding: "9px 14px",
+                    borderRadius: "4px",
+                    backgroundColor: "var(--ink-800)",
+                    color: "var(--mist-100)",
+                    fontWeight: 600,
+                    fontSize: "11.5px",
+                    border: "1px solid var(--border)",
+                    cursor: isScanning ? "not-allowed" : "pointer",
+                  }}
+                >
+                  <SearchIcon size={13} className={isScanning ? "spin" : undefined} />
+                  <span>{isScanning ? "Searching for Phone…" : "Search Phone"}</span>
+                </button>
+                {connectionFeedback && (
+                  <div
+                    style={{
+                      fontSize: "10px",
+                      color: connectionFeedback.toLowerCase().includes("detected")
+                        ? "var(--success)"
+                        : "var(--warning)",
+                      padding: "6px 10px",
+                      borderRadius: "4px",
+                      backgroundColor: "rgba(6, 20, 27, 0.9)",
+                      border: "1px solid var(--border)",
+                      textAlign: "center",
+                      marginTop: "10px",
+                    }}
+                  >
+                    {connectionFeedback}
+                  </div>
+                )}
+              </div>
+            )}
+            {currentStep.id === "wifi_network" && (
+              <div
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "6px",
+                  marginTop: "8px",
+                  padding: "3px 10px",
+                  borderRadius: "var(--radius-full)",
+                  backgroundColor: "var(--ink-950)",
+                  border: "1px solid var(--border)",
+                  fontSize: "10px",
+                  color: "var(--mist-300)",
+                }}
+              >
+                <span
+                  style={{
+                    width: "5px",
+                    height: "5px",
+                    borderRadius: "50%",
+                    backgroundColor: "var(--success)",
+                  }}
+                />
+                <span>5 GHz Wi-Fi Recommended</span>
+              </div>
+            )}
           </>
         )}
       </div>
@@ -861,7 +1159,6 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
       <div style={{ display: "flex", gap: "var(--space-2)" }}>
         <button
           onClick={handlePrev}
-          disabled={currentStepIndex === 0}
           style={{
             display: "flex",
             alignItems: "center",
@@ -871,13 +1168,13 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
             borderRadius: "var(--radius-sm)",
             backgroundColor: "transparent",
             border: "1px solid var(--border)",
-            color: currentStepIndex === 0 ? "var(--ink-600)" : "var(--mist-400)",
-            cursor: currentStepIndex === 0 ? "not-allowed" : "pointer",
+            color: "var(--mist-400)",
+            cursor: "pointer",
             fontSize: "11px",
           }}
         >
           <ChevronLeftIcon size={14} />
-          Back
+          {currentStepIndex === 0 ? "Modes" : "Back"}
         </button>
 
         <button
@@ -890,25 +1187,16 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
             gap: "4px",
             padding: "8px 14px",
             borderRadius: "var(--radius-sm)",
-            backgroundColor:
-              isDeviceOnline && currentStep.id === "ready"
-                ? "var(--success)"
-                : mode === "wifi"
-                ? "var(--accent)"
-                : "var(--ink-800)",
-            border: "1px solid var(--border)",
-            color:
-              isDeviceOnline && currentStep.id === "ready"
-                ? "#06141B"
-                : mode === "wifi"
-                ? "#06141B"
-                : "var(--mist-200)",
+            backgroundColor: isReady ? "var(--success)" : "var(--ink-800)",
+            border: isReady ? "1px solid var(--success)" : "1px solid var(--border)",
+            color: isReady ? "#06141B" : "var(--mist-200)",
             fontWeight: 700,
             fontSize: "11px",
             cursor: "pointer",
+            transition: "all 140ms ease",
           }}
         >
-          <span>{currentStep.id === "ready" ? "Start Stream" : "Next Step"}</span>
+          <span>{isReady ? "Start Stream" : "Next Step"}</span>
           <ChevronRightIcon size={14} />
         </button>
       </div>
