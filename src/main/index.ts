@@ -275,6 +275,26 @@ ipcMain.handle("adb:getScreenSize", async (_event, serial: string) => {
   return adbTracker.getScreenSize(serial);
 });
 
+ipcMain.handle("adb:getDeviceIp", async (_event, serial: string) => {
+  return adbTracker.getDeviceIp(serial);
+});
+
+ipcMain.handle("adb:enableWireless", async (_event, serial: string) => {
+  return adbTracker.enableWireless(serial);
+});
+
+ipcMain.handle("adb:connectWireless", async (_event, target: string) => {
+  return adbTracker.connectWireless(target);
+});
+
+ipcMain.handle("adb:disconnectWireless", async (_event, target: string) => {
+  return adbTracker.disconnectWireless(target);
+});
+
+ipcMain.handle("adb:pairWireless", async (_event, target: string, code: string) => {
+  return adbTracker.pairWireless(target, code);
+});
+
 // Mirroring IPC handlers
 ipcMain.handle("mirror:start", async (_event, serial: string) => {
   if (!mirrorManager) return false;

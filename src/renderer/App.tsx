@@ -10,7 +10,7 @@ import { FloatingHUD } from "./components/HUD/FloatingHUD";
 import { FullscreenControls } from "./components/FullscreenControls/FullscreenControls";
 import { SetupWizard } from "./components/SetupWizard";
 import { VideoCanvas } from "./components/VideoCanvas/VideoCanvas";
-import { ChevronRightIcon, SmartphoneIcon } from "./components/icons";
+import { ChevronRightIcon, SmartphoneIcon, WifiIcon } from "./components/icons";
 import { usePhoneAudio } from "./audio/usePhoneAudio";
 import type { AdbStatusPayload, MirrorState } from "./types/electron";
 import appIcon from "../../assets/phoneframe-icon.png";
@@ -534,6 +534,43 @@ export const App: React.FC = () => {
 
   const handleStopMirror = async () => {
     await window.electronAPI?.stopMirror();
+  };
+
+  const [wifiBusy, setWifiBusy] = useState(false);
+  const [wifiMsg, setWifiMsg] = useState<string | null>(null);
+
+  const handleSwitchToWifi = async () => {
+    const serial = adbStatus.activeDevice?.serial;
+    if (!serial || !window.electronAPI) return;
+    setWifiBusy(true);
+    setWifiMsg(null);
+    try {
+      const res = await window.electronAPI.enableWireless(serial);
+      if (res.success && res.ip) {
+        setWifiMsg(`Connected to ${res.ip}:5555! You can unplug USB.`);
+      } else {
+        setWifiMsg(res.error || "Failed to switch to Wi-Fi");
+      }
+    } catch (e: any) {
+      setWifiMsg(e?.message || "Error switching to Wi-Fi");
+    } finally {
+      setWifiBusy(false);
+    }
+  };
+
+  const handleDisconnectWifi = async () => {
+    const serial = adbStatus.activeDevice?.serial;
+    if (!serial || !window.electronAPI) return;
+    setWifiBusy(true);
+    setWifiMsg(null);
+    try {
+      await window.electronAPI.disconnectWireless(serial);
+      setWifiMsg("Disconnected Wi-Fi");
+    } catch (e: any) {
+      setWifiMsg(e?.message || "Error disconnecting Wi-Fi");
+    } finally {
+      setWifiBusy(false);
+    }
   };
 
   const handleMouseEnter = () => {
@@ -1215,6 +1252,17 @@ export const App: React.FC = () => {
                   </>
                 )}
                 <tr>
+                  <td style={{ color: "var(--text-muted)", padding: "2px 0" }}>Link Mode:</td>
+                  <td
+                    style={{
+                      textAlign: "right",
+                      color: activeDevice?.isWireless ? "var(--accent)" : "var(--mist-200)",
+                    }}
+                  >
+                    {activeDevice?.isWireless ? "Wi-Fi Wireless" : "USB Hardware"}
+                  </td>
+                </tr>
+                <tr>
                   <td style={{ color: "var(--text-muted)", padding: "2px 0" }}>Mirror Engine:</td>
                   <td style={{ textAlign: "right", color: isStreaming ? "var(--success)" : "var(--mist-400)" }}>
                     {mirrorState.toUpperCase()}
@@ -1225,41 +1273,101 @@ export const App: React.FC = () => {
 
             {/* Mirror Stream Action Buttons */}
             {isDeviceConnected && (
-              <div style={{ display: "flex", gap: "6px", marginTop: "4px" }}>
-                {!isStreaming ? (
+              <div style={{ display: "flex", flexDirection: "column", gap: "6px", marginTop: "4px" }}>
+                <div style={{ display: "flex", gap: "6px" }}>
+                  {!isStreaming ? (
+                    <button
+                      onClick={handleStartMirror}
+                      disabled={isStarting}
+                      style={{
+                        flex: 1,
+                        padding: "6px",
+                        borderRadius: "var(--radius-sm)",
+                        backgroundColor: "var(--ink-800)",
+                        border: "1px solid var(--border)",
+                        fontSize: "11px",
+                        color: "var(--mist-200)",
+                        opacity: isStarting ? 0.6 : 1,
+                        cursor: isStarting ? "not-allowed" : "pointer",
+                      }}
+                    >
+                      {isStarting ? "Starting…" : "Start Stream"}
+                    </button>
+                  ) : (
+                    <button
+                      onClick={handleStopMirror}
+                      style={{
+                        flex: 1,
+                        padding: "6px",
+                        borderRadius: "var(--radius-sm)",
+                        backgroundColor: "var(--danger)",
+                        border: "1px solid var(--danger)",
+                        fontSize: "11px",
+                        color: "#06141B",
+                        fontWeight: 600,
+                      }}
+                    >
+                      Stop Stream
+                    </button>
+                  )}
+                </div>
+
+                {/* Wi-Fi Switch / Disconnect Action */}
+                {!activeDevice?.isWireless ? (
                   <button
-                    onClick={handleStartMirror}
-                    disabled={isStarting}
+                    onClick={handleSwitchToWifi}
+                    disabled={wifiBusy}
                     style={{
-                      flex: 1,
-                      padding: "6px",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: "6px",
+                      padding: "5px 8px",
                       borderRadius: "var(--radius-sm)",
-                      backgroundColor: "var(--ink-800)",
-                      border: "1px solid var(--border)",
-                      fontSize: "11px",
-                      color: "var(--mist-200)",
-                      opacity: isStarting ? 0.6 : 1,
-                      cursor: isStarting ? "not-allowed" : "pointer",
+                      backgroundColor: "var(--ink-900)",
+                      border: "1px solid rgba(138, 230, 196, 0.3)",
+                      fontSize: "10.5px",
+                      color: "var(--accent)",
+                      cursor: wifiBusy ? "not-allowed" : "pointer",
+                      opacity: wifiBusy ? 0.6 : 1,
                     }}
                   >
-                    {isStarting ? "Starting…" : "Start Stream"}
+                    <WifiIcon size={12} />
+                    <span>{wifiBusy ? "Switching…" : "Switch to Wi-Fi Mode"}</span>
                   </button>
                 ) : (
                   <button
-                    onClick={handleStopMirror}
+                    onClick={handleDisconnectWifi}
+                    disabled={wifiBusy}
                     style={{
-                      flex: 1,
-                      padding: "6px",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: "6px",
+                      padding: "5px 8px",
                       borderRadius: "var(--radius-sm)",
-                      backgroundColor: "var(--danger)",
-                      border: "1px solid var(--danger)",
-                      fontSize: "11px",
-                      color: "#06141B",
-                      fontWeight: 600,
+                      backgroundColor: "var(--ink-900)",
+                      border: "1px solid var(--border)",
+                      fontSize: "10.5px",
+                      color: "var(--text-muted)",
+                      cursor: wifiBusy ? "not-allowed" : "pointer",
                     }}
                   >
-                    Stop Stream
+                    <WifiIcon size={12} />
+                    <span>{wifiBusy ? "Disconnecting…" : "Disconnect Wi-Fi"}</span>
                   </button>
+                )}
+                {wifiMsg && (
+                  <div
+                    style={{
+                      fontSize: "9.5px",
+                      color: wifiMsg.includes("Connected") ? "var(--success)" : "var(--warning)",
+                      padding: "2px 4px",
+                      textAlign: "center",
+                    }}
+                  >
+                    {wifiMsg}
+                  </div>
                 )}
               </div>
             )}

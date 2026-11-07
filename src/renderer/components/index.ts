@@ -5,4 +5,5 @@ export { SetupWizard } from "./SetupWizard";
 export { VideoCanvas } from "./VideoCanvas";
 export { DPad } from "./DPad";
 export * from "./icons";
+export * from "./QRCode";
 

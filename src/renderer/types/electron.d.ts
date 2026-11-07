@@ -8,6 +8,7 @@ export interface AdbDeviceInfo {
   device?: string;
   width?: number;
   height?: number;
+  isWireless?: boolean;
 }
 
 export interface AdbStatusPayload {
@@ -60,6 +61,11 @@ export interface FloatingPhoneAPI {
   getAdbStatus: () => Promise<AdbStatusPayload>;
   onAdbStatusChange: (callback: (status: AdbStatusPayload) => void) => () => void;
   getAdbScreenSize: (serial: string) => Promise<{ width: number; height: number } | null>;
+  getDeviceIp: (serial: string) => Promise<string | null>;
+  enableWireless: (serial: string) => Promise<{ success: boolean; ip?: string; error?: string }>;
+  connectWireless: (target: string) => Promise<{ success: boolean; message: string }>;
+  disconnectWireless: (target: string) => Promise<{ success: boolean; message: string }>;
+  pairWireless: (target: string, code: string) => Promise<{ success: boolean; message: string }>;
 
   // Real Mirroring
   startMirror: (serial: string) => Promise<boolean>;

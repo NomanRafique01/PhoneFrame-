@@ -10,6 +10,7 @@ export interface AdbDeviceInfo {
   device?: string;
   width?: number;
   height?: number;
+  isWireless?: boolean;
 }
 
 export interface AdbStatusPayload {
@@ -62,6 +63,11 @@ export interface FloatingPhoneAPI {
   getAdbStatus: () => Promise<AdbStatusPayload>;
   onAdbStatusChange: (callback: (status: AdbStatusPayload) => void) => () => void;
   getAdbScreenSize: (serial: string) => Promise<{ width: number; height: number } | null>;
+  getDeviceIp: (serial: string) => Promise<string | null>;
+  enableWireless: (serial: string) => Promise<{ success: boolean; ip?: string; error?: string }>;
+  connectWireless: (target: string) => Promise<{ success: boolean; message: string }>;
+  disconnectWireless: (target: string) => Promise<{ success: boolean; message: string }>;
+  pairWireless: (target: string, code: string) => Promise<{ success: boolean; message: string }>;
 
   // Real Mirroring
   startMirror: (serial: string) => Promise<boolean>;
@@ -105,6 +111,11 @@ const api: FloatingPhoneAPI = {
     };
   },
   getAdbScreenSize: (serial: string) => ipcRenderer.invoke("adb:getScreenSize", serial),
+  getDeviceIp: (serial: string) => ipcRenderer.invoke("adb:getDeviceIp", serial),
+  enableWireless: (serial: string) => ipcRenderer.invoke("adb:enableWireless", serial),
+  connectWireless: (target: string) => ipcRenderer.invoke("adb:connectWireless", target),
+  disconnectWireless: (target: string) => ipcRenderer.invoke("adb:disconnectWireless", target),
+  pairWireless: (target: string, code: string) => ipcRenderer.invoke("adb:pairWireless", target, code),
 
   startMirror: (serial: string) => ipcRenderer.invoke("mirror:start", serial),
   stopMirror: () => ipcRenderer.invoke("mirror:stop"),

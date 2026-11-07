@@ -23,6 +23,7 @@ export interface AdbDeviceInfo {
   device?: string;
   width?: number;
   height?: number;
+  isWireless?: boolean;
 }
 
 export interface AdbStatusPayload {
@@ -209,6 +210,166 @@ export class AdbTracker extends EventEmitter {
   }
 
   /**
+   * Get device's local Wi-Fi IP address
+   */
+  public async getDeviceIp(serial: string): Promise<string | null> {
+    const adb = await this.resolveAdbPath();
+    const run = (cmd: string) =>
+      new Promise<string>((resolve) => {
+        exec(cmd, { env: ADB_SILENT_ENV, windowsHide: true }, (_err, stdout) => {
+          resolve(stdout ? stdout.trim() : "");
+        });
+      });
+
+    // 1. Try wlan0 inet addr
+    const addrOutput = await run(`"${adb}" -s ${serial} shell ip -f inet addr show wlan0`);
+    const match1 = addrOutput.match(/inet\s+(\d+\.\d+\.\d+\.\d+)/);
+    if (match1 && match1[1] && !match1[1].startsWith("127.")) return match1[1];
+
+    // 2. Try any non-loopback inet interface
+    const allAddrOutput = await run(`"${adb}" -s ${serial} shell ip -f inet addr`);
+    const matchAll = allAddrOutput.match(/inet\s+(?!127\.)(\d+\.\d+\.\d+\.\d+)/);
+    if (matchAll && matchAll[1]) return matchAll[1];
+
+    // 3. Try ip route
+    const routeOutput = await run(`"${adb}" -s ${serial} shell ip route`);
+    const match2 = routeOutput.match(/src\s+(\d+\.\d+\.\d+\.\d+)/);
+    if (match2 && match2[1] && !match2[1].startsWith("127.")) return match2[1];
+
+    // 4. Try dhcp property
+    const propOutput = await run(`"${adb}" -s ${serial} shell getprop dhcp.wlan0.ipaddress`);
+    if (/^\d+\.\d+\.\d+\.\d+$/.test(propOutput)) return propOutput;
+
+    return null;
+  }
+
+  /**
+   * Enable wireless debugging on a USB-connected device and connect to it
+   */
+  public async enableWireless(
+    serial: string
+  ): Promise<{ success: boolean; ip?: string; error?: string }> {
+    const adb = await this.resolveAdbPath();
+    const run = (cmd: string) =>
+      new Promise<string>((resolve, reject) => {
+        exec(cmd, { env: ADB_SILENT_ENV, windowsHide: true }, (err, stdout, stderr) => {
+          if (err) return reject(new Error(stderr || stdout || err.message));
+          resolve(stdout ? stdout.trim() : "");
+        });
+      });
+
+    try {
+      // 1. Query device IP before switching tcpip
+      const ip = await this.getDeviceIp(serial);
+      if (!ip) {
+        return {
+          success: false,
+          error: "Could not find a Wi-Fi IP address on the phone. Make sure your phone is connected to Wi-Fi.",
+        };
+      }
+
+      // 2. Restart adbd in TCP mode on port 5555
+      await run(`"${adb}" -s ${serial} tcpip 5555`);
+
+      // 3. Short pause for adbd to restart on the device
+      await new Promise((r) => setTimeout(r, 1500));
+
+      // 4. Connect to the device IP
+      const connectResult = await run(`"${adb}" connect ${ip}:5555`);
+      if (
+        connectResult.toLowerCase().includes("cannot") ||
+        connectResult.toLowerCase().includes("failed")
+      ) {
+        return { success: false, error: connectResult, ip };
+      }
+
+      // Trigger immediate poll
+      this.runDevicesPoll(adb);
+      return { success: true, ip };
+    } catch (err: any) {
+      return { success: false, error: err?.message || String(err) };
+    }
+  }
+
+  /**
+   * Connect to an existing wireless debugging address (e.g. 192.168.1.50:5555 or Android 11+ pairing port)
+   */
+  public async connectWireless(target: string): Promise<{ success: boolean; message: string }> {
+    const adb = await this.resolveAdbPath();
+    let addr = target.trim();
+    if (!addr) return { success: false, message: "Target IP/host cannot be empty." };
+    if (!addr.includes(":")) addr = `${addr}:5555`;
+
+    return new Promise((resolve) => {
+      exec(
+        `"${adb}" connect ${addr}`,
+        { env: ADB_SILENT_ENV, windowsHide: true },
+        (_err, stdout, stderr) => {
+          const out = (stdout || stderr || "").trim();
+          const success = out.toLowerCase().includes("connected to");
+          if (success) {
+            this.runDevicesPoll(adb);
+          }
+          resolve({
+            success,
+            message: out || (success ? `Connected to ${addr}` : "Failed to connect"),
+          });
+        }
+      );
+    });
+  }
+
+  /**
+   * Disconnect from a wireless target
+   */
+  public async disconnectWireless(target: string): Promise<{ success: boolean; message: string }> {
+    const adb = await this.resolveAdbPath();
+    return new Promise((resolve) => {
+      exec(
+        `"${adb}" disconnect ${target.trim()}`,
+        { env: ADB_SILENT_ENV, windowsHide: true },
+        (_err, stdout, stderr) => {
+          const out = (stdout || stderr || "").trim();
+          this.runDevicesPoll(adb);
+          resolve({ success: true, message: out || `Disconnected ${target}` });
+        }
+      );
+    });
+  }
+
+  /**
+   * Pair a wireless debugging device via 6-digit code (Android 11+)
+   */
+  public async pairWireless(
+    target: string,
+    code: string
+  ): Promise<{ success: boolean; message: string }> {
+    const adb = await this.resolveAdbPath();
+    const addr = target.trim();
+    const pairingCode = code.trim();
+    if (!addr || !pairingCode) {
+      return { success: false, message: "IP:Port and Pairing Code are required." };
+    }
+
+    return new Promise((resolve) => {
+      exec(
+        `"${adb}" pair ${addr} ${pairingCode}`,
+        { env: ADB_SILENT_ENV, windowsHide: true },
+        (_err, stdout, stderr) => {
+          const out = (stdout || stderr || "").trim();
+          const success =
+            out.toLowerCase().includes("successfully paired") ||
+            out.toLowerCase().includes("paired to");
+          resolve({
+            success,
+            message: out || (success ? `Paired with ${addr}` : "Pairing failed"),
+          });
+        }
+      );
+    });
+  }
+
+  /**
    * Poll active devices with `adb devices -l` to get rich metadata
    */
   private runDevicesPoll(adb: string): void {
@@ -282,7 +443,8 @@ export class AdbTracker extends EventEmitter {
         else if (stateStr === "unauthorized") state = "unauthorized";
         else if (stateStr === "offline") state = "offline";
 
-        const info: AdbDeviceInfo = { serial, state };
+        const isWireless = serial.includes(":") || /^\d+\.\d+\.\d+\.\d+/.test(serial);
+        const info: AdbDeviceInfo = { serial, state, isWireless };
 
         for (let i = 2; i < parts.length; i++) {
           const item = parts[i];
