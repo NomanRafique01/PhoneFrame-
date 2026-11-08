@@ -2,7 +2,7 @@ Add-Type -AssemblyName System.Drawing
 
 $ErrorActionPreference = "Stop"
 
-$sourcePath = Join-Path $PSScriptRoot "..\Four Phone Icon.png"
+$sourcePath = Join-Path $PSScriptRoot "..\new icon1.png"
 $assetsDir = Join-Path $PSScriptRoot "..\assets"
 
 if (-not (Test-Path $sourcePath)) {
@@ -12,8 +12,8 @@ if (-not (Test-Path $sourcePath)) {
 
 Write-Host "Loading source image from: $sourcePath"
 $sourceStream = [System.IO.File]::OpenRead($sourcePath)
-$srcBitmap = [System.Drawing.Bitmap]::FromStream($sourceStream)
-Write-Host "Source dimensions: $($srcBitmap.Width)x$($srcBitmap.Height)"
+$loadedBitmap = [System.Drawing.Bitmap]::FromStream($sourceStream)
+Write-Host "Source dimensions: $($loadedBitmap.Width)x$($loadedBitmap.Height)"
 
 function Resize-Bitmap($src, [int]$w, [int]$h) {
     $dest = New-Object System.Drawing.Bitmap($w, $h, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
@@ -24,6 +24,64 @@ function Resize-Bitmap($src, [int]$w, [int]$h) {
     $g.CompositingQuality = [System.Drawing.Drawing2D.CompositingQuality]::HighQuality
     $g.Clear([System.Drawing.Color]::Transparent)
     $g.DrawImage($src, 0, 0, $w, $h)
+    $g.Dispose()
+    return $dest
+}
+
+# Returns the visible (non-transparent) bounds so a source rendered on a wider
+# canvas can be cropped to a square instead of being stretched.
+function Get-OpaqueBounds($bmp) {
+    $rect = New-Object System.Drawing.Rectangle(0, 0, $bmp.Width, $bmp.Height)
+    $bmpData = $bmp.LockBits($rect, [System.Drawing.Imaging.ImageLockMode]::ReadOnly, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
+    $stride = [Math]::Abs($bmpData.Stride)
+    $rawBytes = New-Object byte[] ($stride * $bmp.Height)
+    [System.Runtime.InteropServices.Marshal]::Copy($bmpData.Scan0, $rawBytes, 0, $rawBytes.Length)
+    $bmp.UnlockBits($bmpData)
+
+    $minX = $bmp.Width
+    $minY = $bmp.Height
+    $maxX = -1
+    $maxY = -1
+    for ($y = 0; $y -lt $bmp.Height; $y++) {
+        $rowOffset = $y * $stride
+        for ($x = 0; $x -lt $bmp.Width; $x++) {
+            if ($rawBytes[$rowOffset + ($x * 4) + 3] -gt 8) {
+                if ($x -lt $minX) { $minX = $x }
+                if ($x -gt $maxX) { $maxX = $x }
+                if ($y -lt $minY) { $minY = $y }
+                if ($y -gt $maxY) { $maxY = $y }
+            }
+        }
+    }
+    if ($maxX -lt 0) {
+        return @{ Left = 0; Top = 0; Right = $bmp.Width - 1; Bottom = $bmp.Height - 1 }
+    }
+    return @{ Left = $minX; Top = $minY; Right = $maxX; Bottom = $maxY }
+}
+
+# Square crop centred on the visible art, leaving a small margin so rounded
+# corners and soft shadows keep their anti-aliasing.
+function Crop-ToSquare($bmp, $bounds) {
+    $contentW = $bounds.Right - $bounds.Left + 1
+    $contentH = $bounds.Bottom - $bounds.Top + 1
+    $side = [int][Math]::Round([Math]::Max($contentW, $contentH) * 1.06)
+    $side = [Math]::Min($side, [Math]::Min($bmp.Width, $bmp.Height))
+    $centerX = ($bounds.Left + $bounds.Right) / 2.0
+    $centerY = ($bounds.Top + $bounds.Bottom) / 2.0
+    $left = [int][Math]::Round($centerX - ($side / 2.0))
+    $top = [int][Math]::Round($centerY - ($side / 2.0))
+    $left = [Math]::Max(0, [Math]::Min($left, $bmp.Width - $side))
+    $top = [Math]::Max(0, [Math]::Min($top, $bmp.Height - $side))
+
+    $dest = New-Object System.Drawing.Bitmap($side, $side, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
+    $g = [System.Drawing.Graphics]::FromImage($dest)
+    $g.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+    $g.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
+    $g.CompositingQuality = [System.Drawing.Drawing2D.CompositingQuality]::HighQuality
+    $g.Clear([System.Drawing.Color]::Transparent)
+    $srcRect = New-Object System.Drawing.Rectangle($left, $top, $side, $side)
+    $destRect = New-Object System.Drawing.Rectangle(0, 0, $side, $side)
+    $g.DrawImage($bmp, $destRect, $srcRect, [System.Drawing.GraphicsUnit]::Pixel)
     $g.Dispose()
     return $dest
 }
@@ -85,6 +143,18 @@ function Get-DibBytes($bmp) {
     $ms.Dispose()
     return $result
 }
+
+$argbBitmap = New-Object System.Drawing.Bitmap($loadedBitmap.Width, $loadedBitmap.Height, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
+$argbGraphics = [System.Drawing.Graphics]::FromImage($argbBitmap)
+$argbGraphics.DrawImage($loadedBitmap, 0, 0, $loadedBitmap.Width, $loadedBitmap.Height)
+$argbGraphics.Dispose()
+$loadedBitmap.Dispose()
+
+$opaqueBounds = Get-OpaqueBounds $argbBitmap
+Write-Host "Visible art: $($opaqueBounds.Right - $opaqueBounds.Left + 1)x$($opaqueBounds.Bottom - $opaqueBounds.Top + 1)"
+$srcBitmap = Crop-ToSquare $argbBitmap $opaqueBounds
+$argbBitmap.Dispose()
+Write-Host "Cropped square source: $($srcBitmap.Width)x$($srcBitmap.Height)"
 
 # 1. Generate master phoneframe-icon.png (1024x1024)
 Write-Host "Generating 1024x1024 master assets/phoneframe-icon.png..."

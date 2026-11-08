@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/NomanRafique01/PhoneFrame-/main/assets/phoneframe-icon.png" width="180" height="180" alt="PhoneFrame icon"/>
+  <img src="assets/phoneframe-icon.png" width="180" height="180" alt="PhoneFrame icon"/>
 </p>
 
 <h1 align="center">PhoneFrame</h1>
